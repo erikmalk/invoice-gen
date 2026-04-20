@@ -89,6 +89,7 @@ See `.env.example` for the full list required by the current scaffold.
 - Git-triggered deploys are disabled; preferred workflow is manual Vercel CLI deploys.
 - Use `vercel deploy --yes --scope local-hoist` for preview deploys.
 - Use `vercel deploy --prod --yes --scope local-hoist` for production deploys.
+- `vercel.json` explicitly sets `framework: "nextjs"` so Vercel serves the Next.js build correctly.
 - Current sender placeholder: `invoice-gen@mail.localhoist.ai`.
 - Do not point Resend inbound webhooks anywhere yet; Phase 3 will use `/api/inbound-email` on the app domain.
 
