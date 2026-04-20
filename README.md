@@ -1,6 +1,6 @@
 # invoice-gen
 
-AI-powered invoice generator scaffold built with Next.js 15, TypeScript, App Router, Tailwind, Drizzle, Neon, OpenAI, Resend, and Vercel.
+AI-powered invoice generator scaffold built with patched Next.js 15, TypeScript, App Router, Tailwind, Drizzle, Neon, OpenAI, Resend, and Vercel.
 
 ## Phase 0 status
 
