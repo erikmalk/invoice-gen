@@ -56,6 +56,7 @@ See `.env.example` for the full list required by the current scaffold.
 - [x] Placeholder landing page added
 - [ ] Neon integration values populated
 - [ ] Production env vars fully configured
+- [ ] Resend inbound webhook configured (Phase 3)
 
 ### Phase 1 — Database schema & migrations
 - [ ] Planned
@@ -85,8 +86,11 @@ See `.env.example` for the full list required by the current scaffold.
 
 - Vercel project name: `invoice-gen`
 - Repo name: `invoice-gen`
-- Git-triggered deploys are currently enabled per user-approved Phase 0 override.
-- A manual `vercel deploy --yes` preview deploy should still be used to confirm the bootstrap works.
+- Git-triggered deploys are disabled; preferred workflow is manual Vercel CLI deploys.
+- Use `vercel deploy --yes --scope local-hoist` for preview deploys.
+- Use `vercel deploy --prod --yes --scope local-hoist` for production deploys.
+- Current sender placeholder: `invoice-gen@mail.localhoist.ai`.
+- Do not point Resend inbound webhooks anywhere yet; Phase 3 will use `/api/inbound-email` on the app domain.
 
 ## License
 
