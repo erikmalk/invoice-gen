@@ -203,7 +203,7 @@ test("parseInbound falls back to inline webhook content when receiving.get fails
 
   const { provider, receivingCalls } = createProvider(event, {
     emails: {
-      async send(payload) {
+      async send() {
         return { data: { id: "outbound_123" }, error: null };
       },
       receiving: {

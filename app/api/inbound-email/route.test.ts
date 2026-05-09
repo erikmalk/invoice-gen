@@ -11,9 +11,9 @@ process.env.EMAIL_FROM_NAME ??= "Invoice Bot";
 process.env.CRON_SECRET ??= "cron-secret";
 process.env.OWNER_EMAIL ??= "owner@example.com";
 
-const routeModule = await import("./route.ts");
-const { handleInboundEmail } = routeModule;
-type InboundEmailRouteDependencies = import("./route.ts").InboundEmailRouteDependencies;
+const handlerModule = await import("./handler.ts");
+const { handleInboundEmail } = handlerModule;
+type InboundEmailRouteDependencies = import("./handler.ts").InboundEmailRouteDependencies;
 type InboundEmail = import("../../../lib/email/types.ts").InboundEmail;
 
 type TestRouteDependencies = InboundEmailRouteDependencies & {
