@@ -138,6 +138,7 @@ export const messages = pgTable(
     sequenceNum: integer("sequence_num").notNull(),
     role: text("role").notNull(),
     content: text("content"),
+    externalMessageId: text("external_message_id").unique(),
     toolCalls: jsonb("tool_calls").$type<
       Array<{ id: string; name: string; arguments: unknown }>
     >(),

@@ -16,7 +16,8 @@
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env.local scripts/seed.ts",
-    "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
+    "dev:send-email": "node --env-file-if-exists=.env.local scripts/dev-send-email.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

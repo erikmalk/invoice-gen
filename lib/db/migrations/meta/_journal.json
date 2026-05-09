@@ -8,6 +8,13 @@
       "when": 1776665558212,
       "tag": "0000_free_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778357774483,
+      "tag": "0001_lean_strong_guy",
+      "breakpoints": true
     }
   ]
 }
