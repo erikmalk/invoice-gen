@@ -128,29 +128,6 @@ function dmarcHeaderFromMatchesSender(authenticationResult: string, senderDomain
   return headerFromDomain === senderDomain;
 }
 
-function logInboundAuthenticationDecision(input: {
-  inboundEmail: InboundEmail;
-  authenticated: boolean;
-  userMatched: boolean;
-}) {
-  const { inboundEmail, authenticated, userMatched } = input;
-
-  console.info(
-    "Inbound email authentication decision",
-    JSON.stringify({
-      authenticated,
-      userMatched,
-      from: inboundEmail.from.email,
-      to: inboundEmail.to.map((address) => address.email),
-      cc: inboundEmail.cc.map((address) => address.email),
-      bcc: inboundEmail.bcc.map((address) => address.email),
-      messageId: inboundEmail.messageId,
-      providerMessageId: inboundEmail.providerMessageId,
-      authenticationResults: inboundEmail.authenticationResults,
-    }),
-  );
-}
-
 const defaultDependencies: InboundEmailRouteDependencies = {
   emailProvider: resendEmailProvider,
   findUserByEmail,
@@ -176,12 +153,6 @@ export async function handleInboundEmail(
   const inboundEmail = await dependencies.emailProvider.parseInbound(req);
   const user = await dependencies.findUserByEmail(inboundEmail.from.email);
   const isAuthenticated = hasPassingEmailAuthentication(inboundEmail);
-
-  logInboundAuthenticationDecision({
-    inboundEmail,
-    authenticated: isAuthenticated,
-    userMatched: Boolean(user),
-  });
 
   if (!isAuthenticated) {
     return Response.json({ ok: false, error: "Sender authentication failed." }, { status: 403 });
