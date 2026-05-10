@@ -167,7 +167,6 @@ function invoiceDocument(input: InvoicePdfInput) {
           { style: { width: 190 } },
           React.createElement(View, { style: styles.metaRow }, React.createElement(Text, null, "Issued"), React.createElement(Text, null, text(invoice.issuedDate))),
           React.createElement(View, { style: styles.metaRow }, React.createElement(Text, null, "Due"), React.createElement(Text, null, text(invoice.dueDate))),
-          React.createElement(View, { style: styles.metaRow }, React.createElement(Text, null, "Status"), React.createElement(Text, null, invoice.status)),
         ),
       ),
       React.createElement(

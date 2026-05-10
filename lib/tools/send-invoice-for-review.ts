@@ -66,14 +66,13 @@ export async function sendInvoiceForReview(
     .where(eq(lineItems.invoiceId, invoice.id))
     .orderBy(lineItems.position);
   const latestInbound = await latestInboundMessage(ctx);
-  const invoiceSummary = summarizeInvoice(invoice, items, client?.companyName ?? client?.contactName ?? client?.email);
   const pdfBuffer = client ? pdfBufferFromInlineBlobKey(invoice.pdfBlobKey) ?? await renderInvoicePdf({ invoice, lineItems: items, user: owner, client }) : null;
 
   const sent = await ctx.emailProvider.send({
     to: [{ email: owner.email, name: owner.name ?? undefined }],
     subject: thread.subject ? `Re: ${thread.subject}` : `Review draft invoice ${invoice.invoiceNumber}`,
-    text: `${args.messageToOwner}\n\n${invoiceSummary}`,
-    html: `<p>${escapeHtml(args.messageToOwner)}</p><pre>${escapeHtml(invoiceSummary)}</pre>`,
+    text: args.messageToOwner,
+    html: `<p>${escapeHtml(args.messageToOwner).replaceAll("\n", "<br />")}</p>`,
     thread: {
       messageId: thread.externalRootId ?? undefined,
       inReplyTo: latestInbound?.externalMessageId ?? thread.externalRootId,
@@ -105,7 +104,6 @@ export async function sendInvoiceForReview(
       threadStatus: "awaiting_approval",
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      invoiceSummary,
       pdfBlobKey: invoice.pdfBlobKey,
       pdfUrl: invoice.pdfBlobKey,
     },
@@ -120,37 +118,6 @@ async function latestInboundMessage(ctx: ToolContext) {
     .orderBy(messages.sequenceNum);
 
   return rows.at(-1) ?? null;
-}
-
-function summarizeInvoice(
-  invoice: typeof invoices.$inferSelect,
-  items: Array<typeof lineItems.$inferSelect>,
-  clientLabel: string | null | undefined,
-) {
-  return [
-    `Invoice: ${invoice.invoiceNumber}`,
-    `Client: ${clientLabel ?? `Client ${invoice.clientId}`}`,
-    `Status: ${invoice.status}`,
-    `Issued: ${invoice.issuedDate ?? ""}`,
-    `Due: ${invoice.dueDate ?? ""}`,
-    `Currency: ${invoice.currency}`,
-    "Line items:",
-    ...items.map(
-      (item) =>
-        `- ${item.description}: ${item.quantity} × ${formatCents(item.unitPriceCents, invoice.currency)} = ${formatCents(
-          item.totalCents,
-          invoice.currency,
-        )}`,
-    ),
-    `Subtotal: ${formatCents(invoice.subtotalCents, invoice.currency)}`,
-    `Tax: ${formatCents(invoice.taxCents, invoice.currency)}`,
-    `Total: ${formatCents(invoice.totalCents, invoice.currency)}`,
-    invoice.pdfBlobKey ? "PDF: attached" : "PDF: not available",
-  ].join("\n");
-}
-
-function formatCents(cents: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }
 
 function escapeHtml(value: string) {
