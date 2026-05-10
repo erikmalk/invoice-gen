@@ -1,6 +1,6 @@
 # Invoice Generator — Core App Plan
 
-> **Status:** Draft plan. Not yet implemented. This document is the single source of truth for the first implementation pass and should be consumed by agents who do **not** have the prior planning conversation in context.
+> **Status:** Implementation in progress. Phases 0–3 are complete, Phase 4 is partially implemented, Phase 5a/5b have a working first pass, and production email ingestion + agent response has been validated. This document remains the exhaustive original plan, but for a concise current handoff see `docs/current-architecture-and-next-steps.md`.
 
 ---
 
@@ -10,7 +10,7 @@ An AI-powered invoice generator that operates primarily over email.
 
 **Happy path:**
 
-1. A small-business owner (the "user" / "owner") emails `invoice-gen@trimson.ai` with an informal request ("Need to invoice Fable Co for last week's wig fitting, $200 + $25 kit fee").
+1. A small-business owner (the "user" / "owner") emails `invoice-gen@example.com` with an informal request ("Need to invoice Fable Co for last week's wig fitting, $200 + $25 kit fee").
 2. An inbound webhook persists the email and kicks off an agent loop.
 3. The agent uses tools to look up the client, draft an invoice record in the database, render it to PDF, and email the draft back to the owner for review.
 4. The owner replies with "approved" (or a change request). The agent either marks the invoice approved in the DB and optionally forwards to the client, or revises and loops again.
@@ -25,6 +25,19 @@ Multiple entry-point addresses (e.g. `invoice-gen@`, `expense-report@`) may exis
 - Draft → approved status flow, PDF export, email delivery
 - Single-user (auth == inbound email identity match)
 - Foundation that can grow into multi-user, multi-persona, Stripe payments, web UI
+
+### Current implementation status snapshot
+
+- Production app is deployed manually to Vercel at `invoice-gen-alpha-neon.vercel.app`.
+- Git-triggered Vercel auto-deploys are disabled; use `vercel deploy --prod --yes --scope example-team` and verify status after deploy.
+- Resend custom receiving domain is `example.com`; active bot address is `invoice-gen@example.com`.
+- Resend webhook is configured for `email.received` to `https://invoice-gen-alpha-neon.vercel.app/api/inbound-email`.
+- Neon/Drizzle schema and migrations are applied; owner user is seeded from `OWNER_EMAIL`.
+- Inbound email signature verification has been proven: unsigned production POSTs return `401`.
+- Inbound email ingestion has been proven end-to-end: Resend → Vercel webhook → Neon `threads/messages/jobs`.
+- Agent execution has a working first pass: OpenAI Responses API, DB-backed prompt, tool calls, terminal tool behavior, and job dispatch.
+- Missing-client clarification has been proven end-to-end: a real request for non-existent "Fable Co" generated an email asking for client details.
+- Full invoice draft creation with a seeded client record still needs an end-to-end test and likely troubleshooting/polish.
 
 ### Non-goals (for now)
 - Web-based chat UI (may add later)
@@ -46,8 +59,8 @@ Multiple entry-point addresses (e.g. `invoice-gen@`, `expense-report@`) may exis
 | Database | **Neon Postgres** via the Vercel–Neon integration | Already used, good serverless story. |
 | ORM | **Drizzle ORM** | TS-native types, no codegen step, Neon-friendly. |
 | LLM | **OpenAI `gpt-5.4`** (configurable via `settings` table) | Current model. Mini is allowed but full-fat is cheap enough at this volume. |
-| Email provider | **Resend** on a subdomain of `trimson.ai` (e.g. `example.com`) | Already in use. First-class inbound webhooks. Signed payloads. |
-| PDF generator | **`@react-pdf/renderer`** | Pure Node, no Chromium. JSX-authored invoice template. |
+| Email provider | **Resend** on `example.com` | First-class inbound webhooks. Signed Svix payloads. Production receiving and webhook delivery have been validated. |
+| PDF generator | Planned: **`@react-pdf/renderer`**. Current first pass: text-buffer stub. | Real PDF rendering/storage remains a finishing task. |
 | Auth | **None now.** Inbound `From:` header must match a `users.email` row. | Deferred to WorkOS later; schema reserves `user_id` FKs now. |
 | Payments | **None now.** Reserve Stripe columns on `invoices`. | Column order in Postgres is fixed at creation; cheaper to add now than `ALTER` later. |
 | License | **MIT** | Owner intends this to be open source for self-hosters. |
@@ -69,7 +82,7 @@ flowchart LR
         RUN[runAgentLoop<br/>waitUntil background]
         CRON[/GET /api/cron/retry-stuck/]
         TOOLS[Tools:<br/>manage_invoice<br/>search_client_db<br/>send_invoice_for_review<br/>request_clarification]
-        PDF[PDF renderer<br/>@react-pdf/renderer]
+        PDF[PDF artifact<br/>text stub now, real PDF planned]
     end
 
     subgraph Postgres["Neon Postgres"]
@@ -83,7 +96,7 @@ flowchart LR
         T_jobs[(jobs)]
     end
 
-    LLM[OpenAI gpt-5.4]
+    LLM[OpenAI Responses API<br/>configured model]
 
     IN --> API
     API -->|persist + 200 OK| Postgres
@@ -134,10 +147,10 @@ The inbound email's **To:** address determines the persona:
 
 | Address | Persona | System prompt | Tool subset |
 |---|---|---|---|
-| `invoice-gen@trimson.ai` | Invoice Generator | `settings.invoice_gen_system_prompt` | manage_invoice, search_client_db, send_invoice_for_review, request_clarification |
-| `expense-report@trimson.ai` | *(future)* | — | — |
+| `invoice-gen@example.com` | Invoice Generator | `settings.invoice_gen_system_prompt` | manage_invoice, search_client_db, send_invoice_for_review, request_clarification |
+| `expense-report@example.com` | *(future)* | — | — |
 
-Personas are configured in the `settings` table under `personas` or equivalent. Adding a persona = new row + new prompt file, no deploy necessary if prompt is in DB (decision deferred — probably file-based for v1 for diffability, DB-backed later).
+The current `invoice-gen` persona is configured in code, with runtime settings read from the `settings` table. The system prompt source of truth is `settings.invoice_gen_system_prompt`; `lib/agent/default-prompts.ts` is only a bootstrap/fallback default.
 
 ---
 
@@ -284,7 +297,7 @@ updated_at      timestamptz default now()
 /app
   /api
     /inbound-email/route.ts        # Resend webhook
-    /cron/retry-stuck/route.ts     # safety-net cron
+    /cron/retry-stuck/route.ts     # planned safety-net cron (not implemented yet)
   /layout.tsx
   /page.tsx                        # minimal landing page
 
@@ -309,7 +322,7 @@ updated_at      timestamptz default now()
     send-invoice-for-review.ts
     request-clarification.ts
   /invoices
-    pdf.tsx                        # @react-pdf/renderer template
+    pdf.ts                         # current text-buffer artifact; replace with real PDF renderer later
     numbering.ts                   # invoice_number generator
   /db
     schema.ts                      # Drizzle schema
@@ -323,12 +336,10 @@ updated_at      timestamptz default now()
     run.ts
     kinds.ts
 
-/prompts
-  invoice-gen.md
-
 /scripts
   seed.ts                          # seed users + settings
   dev-send-email.ts                # local helper: simulate inbound email
+  dev-run-job.ts                   # local helper: run/retry a queued job
 
 /docs
   /plans/invoice-generator-core-app.md   (this file)
@@ -420,11 +431,11 @@ interface EmailProvider {
 - Webhook route must return quickly. It persists the email and enqueues work; it does **not** run the agent loop inline.
 - Agent loop runs via `waitUntil(...)` (from `@vercel/functions`) so the HTTP response returns immediately and the loop continues in the background.
 - Fluid Compute (Vercel Pro) supports background execution up to 800s, which is plenty for a bounded 10-step loop even on slow OpenAI days.
-- A **safety-net cron** runs every minute, picks up any `jobs` rows in `status='pending'` older than 2 minutes (or `status='running'` older than 10 minutes with `started_at` stale), and retries them. This covers cases where `waitUntil` didn't execute, the function was killed, or OpenAI timed out.
+- A **safety-net cron** is planned but not implemented yet. It should run regularly, pick up `jobs` rows in `status='pending'` older than 2 minutes (or `status='running'` older than 10 minutes with `started_at` stale), and retry them. This will cover cases where `waitUntil` didn't execute, the function was killed, or OpenAI timed out.
 
 ### Webhook security
 - Resend signs inbound webhooks with an HMAC header. Verify using the signing secret from `RESEND_WEBHOOK_SECRET`. Reject on mismatch.
-- Cron routes use Vercel's built-in cron auth (`Authorization: Bearer $CRON_SECRET`).
+- Planned cron routes should use Vercel cron auth / a bearer secret (`Authorization: Bearer $CRON_SECRET`).
 
 ### Idempotency
 - Inbound emails have a `Message-ID`. Persist a `messages`-style row only if that ID isn't already in the thread. Resend retries become no-ops.
@@ -438,28 +449,34 @@ interface EmailProvider {
 Read-only. Lookup by company name, contact name, and/or address. Returns up to N matches with full client rows. Used first to identify the invoice recipient.
 
 ### `manage_invoice`
-Write. `requiresApproval = false` for `create` (draft-only) and `update` (still draft); `true` for `approve`, `void`, `delete`.
+Write. Current implementation supports draft `create` and `update` only. Future approval actions may add `approve`, `void`, and `delete`.
 ```
 {
-  action: 'create' | 'update' | 'approve' | 'void' | 'delete',
-  invoice_id?: number,             // required for non-create
-  client_id?: number,              // required for create
-  line_items?: Array<{description, quantity, unit_price_cents}>,
-  due_date?: string,               // ISO
+  action: 'create' | 'update',
+  invoiceId?: number,              // required for update
+  clientId?: number,               // required for create
+  lineItems?: Array<{description, quantity, unitPriceCents}>,
+  issuedDate?: string,             // YYYY-MM-DD
+  dueDate?: string,                // YYYY-MM-DD
+  currency?: string,
+  taxCents?: number,
   notes?: string
 }
 ```
-Returns the full invoice + a rendered PDF URL.
+Returns the invoice plus the current PDF artifact reference. The artifact is a text-buffer placeholder until real PDF/storage work lands.
 
 ### `send_invoice_for_review`
 Write. `requiresApproval = false` (the review itself is the human-in-the-loop gate).
 ```
-{ invoice_id: number, message_to_owner?: string }
+{ invoiceId: number, messageToOwner: string }
 ```
 Emails the owner the PDF + a summary. Sets thread status to `awaiting_approval`.
 
 ### `request_clarification`
-Read-ish. Sends a reply to the owner asking for missing info. No state change beyond emitting an email and ending the current agent turn.
+Terminal. Sends a reply to the owner asking for missing info, marks the thread `awaiting_approval` in the current first pass, and ends the current agent turn. A more precise future status may be `awaiting_clarification`.
+```
+{ messageToOwner: string }
+```
 
 ---
 
@@ -470,6 +487,10 @@ Each phase is sized to be completable by a sub-agent in a single session. Phases
 ---
 
 ### Phase 0 — Project bootstrap
+
+**Current status:** ✅ Complete.
+
+Production is manually deployed on Vercel. Git-triggered auto-deploys are disabled in `vercel.json` and manual CLI deploys are the expected workflow.
 
 **Goal:** empty-but-wired Next.js app on Vercel with Neon, GitHub, and CI conventions in place.
 
@@ -514,6 +535,10 @@ OWNER_EMAIL=
 
 ### Phase 1 — Data model & migrations
 
+**Current status:** ✅ Complete.
+
+The Drizzle schema, migrations, seed script, Neon database, owner user, and settings rows are in place. The prompt setting is now `invoice_gen_system_prompt` and is the runtime source of truth.
+
 **Goal:** all tables from §4 exist; a seed script populates the owner user and initial `settings`.
 
 **Tasks:**
@@ -534,25 +559,33 @@ OWNER_EMAIL=
 
 ### Phase 2 — LLM client abstraction
 
+**Current status:** ✅ Complete, with the implementation using the OpenAI Responses API rather than Chat Completions.
+
+The app-level `LLMClient.chat()` interface remains provider-agnostic. Unit tests and the real OpenAI smoke test passed.
+
 **Goal:** a provider-agnostic chat interface with an OpenAI implementation and a fake for tests.
 
 **Tasks:**
 1. `lib/llm/types.ts` — the interfaces from §6.
-2. `lib/llm/openai.ts` — implements `LLMClient` using the `openai` SDK:
-   - Converts our `ChatMessage[]` to OpenAI's shape (tool calls, tool messages).
-   - Converts `ToolDefinition[]` to OpenAI's `tools` param.
+2. `lib/llm/openai.ts` — implements `LLMClient` using the OpenAI Responses API through the `openai` SDK:
+   - Converts our `ChatMessage[]` to Responses API input items (including tool calls and tool outputs).
+   - Converts `ToolDefinition[]` to Responses API tools.
    - Returns normalized `ChatResponse`.
 3. `lib/llm/fake.ts` — a scripted fake for tests: given a queue of responses, return them in order.
 4. `lib/llm/index.ts` — factory reading `invoice_gen_model_name` from settings and returning the right client.
 5. Unit tests covering: roundtripping a tool call, handling a response with no tool calls, handling multiple tool calls in one turn.
 
 **Acceptance:**
-- A smoke test (behind an env flag) calls the real OpenAI with `gpt-5.4` and round-trips a hello-world tool call.
+- A smoke test (behind an env flag) calls the real OpenAI Responses API with the configured model and round-trips a hello-world tool call.
 - Unit tests pass with the fake.
 
 ---
 
 ### Phase 3 — Email layer (Resend)
+
+**Current status:** ✅ Complete and validated in production.
+
+Resend receiving is configured on `example.com`, with inbound messages sent to `invoice-gen@example.com`. The webhook listens for `email.received` at `/api/inbound-email`. Valid inbound emails are persisted and unsigned/fake production requests return `401`.
 
 **Goal:** send and receive email, with threading and signature verification.
 
@@ -583,11 +616,15 @@ OWNER_EMAIL=
 
 ### Phase 4 — Tools & PDF generation
 
+**Current status:** 🟡 Partially complete.
+
+Implemented: `search_client_db`, `manage_invoice`, `send_invoice_for_review`, `request_clarification`, invoice numbering, line-item/totals persistence, and fake email support for tests. Not yet production-quality: real `@react-pdf/renderer` PDF generation, real Blob/storage integration, and full seeded-client invoice E2E validation.
+
 **Goal:** the four v1 tools implemented and individually testable, plus a clean PDF template.
 
 **Tasks:**
 1. `lib/invoices/numbering.ts` — generate next `invoice_number` per user (format: `YYYY-NNNN`).
-2. `lib/invoices/pdf.tsx` — `@react-pdf/renderer` template. Takes a full invoice + user + client; emits a Buffer. Store to Vercel Blob (`pdf_blob_key`). If Blob isn't set up yet in Phase 0, stub to filesystem in dev.
+2. `lib/invoices/pdf.ts` — currently a text-buffer placeholder. Replace with an `@react-pdf/renderer` template that takes a full invoice + user + client and emits a Buffer, then store to Vercel Blob or the chosen storage provider (`pdf_blob_key`).
 3. `lib/tools/*.ts` — each tool implemented with Zod schema, `requiresApproval` flag, and a pure `run(args, ctx)`.
 4. `lib/tools/registry.ts` — maps tool name → Tool. Provides a `toolsForPersona(persona)` helper.
 5. Unit tests for each tool against a seeded test DB.
@@ -601,6 +638,10 @@ OWNER_EMAIL=
 ---
 
 ### Phase 5a — Agent loop (synchronous, no email glue yet)
+
+**Current status:** 🟡 Working first pass.
+
+`runAgentLoop(threadId)` loads thread/user/message context, includes both thread subject and message body in the LLM context, uses the DB-backed prompt, calls OpenAI through the Responses API adapter, persists assistant/tool messages, executes tools, and stops after terminal tools without an unnecessary extra LLM call. Missing-client clarification has been proven with a real inbound email. The happy path with a real seeded client still needs E2E validation.
 
 **Goal:** a function `runAgentLoop(threadId)` that, given a thread with queued messages, runs the bounded loop and persists everything.
 
@@ -627,11 +668,15 @@ OWNER_EMAIL=
 
 **Acceptance:**
 - Given a seeded thread with an inbound email, `runAgentLoop(threadId)` produces the expected tool calls and final state deterministically (with the fake LLM).
-- Real end-to-end test (behind env flag) against OpenAI `gpt-5.4` generates a plausible invoice for a seeded client.
+- Real end-to-end test against OpenAI Responses API generates a plausible invoice for a seeded client. **Still pending as of the current status update.**
 
 ---
 
 ### Phase 5b — Background execution & inbound routing
+
+**Current status:** 🟡 Partially complete.
+
+Implemented: `lib/jobs/run.ts`, job status transitions, `waitUntil(runJob(jobId))` from inbound webhook, and local retry/debugging via `pnpm dev:run-job`. Not yet implemented: cron route for pending/stuck jobs, cron config, and automatic recovery of stale jobs.
 
 **Goal:** inbound email → agent run happens asynchronously, reliably.
 
@@ -653,13 +698,17 @@ OWNER_EMAIL=
 
 ### Phase 6 — Minimal admin UI (optional but recommended)
 
-**Goal:** an unauthenticated read-only view (since we have no auth) accessible only from localhost or behind a Vercel password. Useful for debugging and for eventual WorkOS retrofit.
+**Current status:** 🔴 Not started / deferred.
+
+Do not expose a production admin UI until the authentication story is settled. Because the owner already uses WorkOS in other projects, WorkOS is the recommended auth path before building real client/invoice management screens. For short-term testing, use Neon Console or a private script to seed client records.
+
+**Goal:** eventually provide a protected admin/debug UI for client records, invoices, threads, jobs, and prompt/settings management.
 
 **Tasks:**
 1. `/app/admin/invoices` — list invoices with status.
 2. `/app/admin/invoices/[id]` — detail view, PDF link, status actions (approve, void).
 3. `/app/admin/threads/[id]` — message timeline for debugging agent runs.
-4. Protect with a simple `ADMIN_PASSWORD` middleware for now.
+4. Protect with WorkOS auth for production use. A simple `ADMIN_PASSWORD` or localhost-only guard is acceptable only for temporary debugging tools.
 
 **Acceptance:**
 - Can view every invoice, open its PDF, and manually approve/void.
@@ -783,25 +832,28 @@ The migration itself should be a one-afternoon task because of the conventions i
 
 ## 11. Open questions / deferred decisions
 
-- **PDF storage:** Vercel Blob vs. inline in DB vs. Cloudflare R2. Phase 4 decides. Default leaning: Vercel Blob for first cut.
+- **Seeded-client invoice E2E:** not yet complete. The next core milestone is adding a real client record, sending an invoice request, and confirming `invoices` + `line_items` + review email are generated correctly.
+- **PDF rendering/storage:** currently a text-buffer stub. Need real `@react-pdf/renderer` output and a storage decision, with Vercel Blob still the default leaning.
 - **Prompt storage:** DB-backed via `settings.invoice_gen_system_prompt`, with a bundled code fallback only for bootstrap/missing-setting recovery so local and production use the same runtime prompt source.
+- **Cron/retry safety net:** job dispatcher exists, but `/api/cron/retry-stuck` and Vercel cron config are not implemented yet.
+- **Client data management:** currently manual via Neon Console or future script. Production admin/client CRUD should wait for WorkOS auth.
 - **Approval policy granularity:** currently a boolean per tool. May need per-action inside `manage_invoice` (already designed that way — `create` and `update` on draft don't require; `approve`/`void`/`delete` do).
 - **Client-facing send:** sending the final approved invoice *to the client* is intentionally NOT in v1. The owner forwards manually. Added later as a new tool with `requiresApproval=true`.
 - **Stripe:** schema only. Code lands in a future plan.
-- **Auth:** none now. When WorkOS arrives, users table already has the shape; add an `auth_provider_id` column and a `/login` route.
+- **Auth:** none now. WorkOS is recommended before any production admin panel; add an `auth_provider_id` column and login/session routes when that phase starts.
 - **Multi-tenancy:** every query is already scoped by `user_id`. Turning on multi-tenant is "allow more users" + auth.
 
 ---
 
-## 12. What the first sub-agent should do
+## 12. What the next agent should do
 
-Start with **Phase 0** only. Do not attempt multiple phases in one session. When Phase 0's acceptance criteria pass, stop and report so the human can review before Phase 1.
+Start by reading `docs/current-architecture-and-next-steps.md`, then use this document for exhaustive detail as needed.
 
-Explicit starting instructions for the Phase 0 agent:
+The next highest-value work is:
 
-1. Read this file end-to-end.
-2. Confirm the tech stack decisions in §2 are still correct by asking the user if anything needs updating.
-3. Execute Phase 0 tasks in order.
-4. Do **not** install dependencies beyond the ones listed in Phase 0's task list without asking.
-5. Do **not** write any business logic in Phase 0 — just scaffolding, config, and a placeholder page.
-6. Confirm a successful manual `vercel deploy --yes` before declaring done.
+1. Create or manually insert a real test client record, e.g. `Fable Co` for owner user `1`.
+2. Run a full invoice-generation E2E test from inbound email through `invoices`, `line_items`, job completion, and owner review email.
+3. Fix any prompt/tool/schema issues found during that seeded-client happy-path test.
+4. Implement the cron/retry safety net once the core happy path is stable.
+5. Replace the text-buffer PDF stub with real PDF rendering/storage.
+6. Defer the admin UI until WorkOS/protected auth is designed.
