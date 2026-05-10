@@ -15,7 +15,7 @@ type SendInvoiceForReviewArgs = z.infer<typeof sendInvoiceForReviewSchema>;
 export const sendInvoiceForReviewTool: Tool<SendInvoiceForReviewArgs> = {
   name: "send_invoice_for_review",
   description:
-    "Email the owner a draft invoice summary for review. This sends only to the owner and is terminal for the current run.",
+    "Email the owner a brief, natural note asking them to review the attached invoice PDF. This sends only to the owner and is terminal for the current run.",
   terminal: true,
   parameters: {
     type: "object",
@@ -23,7 +23,8 @@ export const sendInvoiceForReviewTool: Tool<SendInvoiceForReviewArgs> = {
       invoiceId: { type: "number" },
       messageToOwner: {
         type: "string",
-        description: "Owner-facing note explaining what was drafted and what needs review.",
+        description:
+          "Brief owner-facing note asking the owner to review the attached PDF. Do not summarize invoice metadata unless the owner explicitly asked for it.",
       },
     },
     required: ["invoiceId", "messageToOwner"],
