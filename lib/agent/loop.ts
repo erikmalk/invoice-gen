@@ -6,7 +6,7 @@ import { resendEmailProvider } from "../email/resend.ts";
 import type { EmailProvider } from "../email/types.ts";
 import { createLLMClientForModel } from "../llm/index.ts";
 import type { ChatMessage, ChatResponse, LLMClient, ToolCall } from "../llm/types.ts";
-import { toolRegistry, toolsForPersona } from "../tools/registry.ts";
+import { toolsForPersona } from "../tools/registry.ts";
 import { toolToDefinition, type AppDb, type Tool, type ToolContext, type ToolResult } from "../tools/types.ts";
 import { personaForEntryPoint } from "./personas.ts";
 import { runStep } from "./step.ts";
@@ -116,7 +116,7 @@ export async function runAgentLoop(
     }
 
     for (const toolCall of toolCalls) {
-      const tool = toolMap.get(toolCall.name) ?? toolRegistry.get(toolCall.name);
+      const tool = toolMap.get(toolCall.name);
 
       if (!tool) {
         throw new Error(`LLM requested unknown tool: ${toolCall.name}`);

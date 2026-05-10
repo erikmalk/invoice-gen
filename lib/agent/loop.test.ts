@@ -171,3 +171,57 @@ test("terminal tool execution stops the loop without another LLM call", async ()
   assert.deepEqual(persistedRoles, ["assistant", "tool"]);
   assert.deepEqual(statuses, []);
 });
+
+test("agent rejects tool calls outside the active persona allowlist", async () => {
+  const context = createThreadContext();
+  const persistedRoles: string[] = [];
+  const store: AgentStore = {
+    async loadThreadContext() {
+      return context;
+    },
+    async persistAssistantMessage() {
+      persistedRoles.push("assistant");
+    },
+    async persistToolMessage() {
+      persistedRoles.push("tool");
+    },
+    async setThreadStatus() {
+      // Unused in this path.
+    },
+  };
+  const allowedTool: Tool = {
+    name: "terminal_tool",
+    description: "The only tool this persona may use.",
+    terminal: true,
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async run() {
+      throw new Error("should not run allowed tool");
+    },
+  };
+  const llm = new FakeLLMClient([
+    {
+      model: "fake-model",
+      message: {
+        role: "assistant",
+        toolCalls: [{ id: "call_1", name: "search_client_db", arguments: { query: "Fable" } }],
+      },
+    },
+  ]);
+
+  await assert.rejects(
+    runAgentLoop(42, {
+      db: {} as AppDb,
+      store,
+      persona,
+      tools: [allowedTool],
+      llmClient: llm,
+      emailProvider: { async send() { return { messageId: "unused" }; } },
+      async loadSystemPrompt() {
+        return "system prompt";
+      },
+    }),
+    /LLM requested unknown tool: search_client_db/,
+  );
+
+  assert.deepEqual(persistedRoles, ["assistant"]);
+});
