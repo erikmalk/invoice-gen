@@ -53,6 +53,9 @@ function createDependencies(overrides: Partial<InboundEmailRouteDependencies> = 
     async findUserByEmail(email) {
       return { id: 1, email };
     },
+    async countRecentAcceptedInboundMessages() {
+      return 0;
+    },
     async findOrCreateThread() {
       return { threadId: 10, created: true, entryPoint: "invoice-gen" };
     },
@@ -76,6 +79,31 @@ function createDependencies(overrides: Partial<InboundEmailRouteDependencies> = 
   return dependencies as TestRouteDependencies;
 }
 
+test("handleInboundEmail rejects direct webhook hits from non-Resend IPs before verification", async () => {
+  const dependencies = createDependencies({
+    emailProvider: {
+      async verifyInboundSignature() {
+        throw new Error("should not verify signatures from disallowed IPs");
+      },
+      async parseInbound() {
+        throw new Error("should not parse inbound from disallowed IPs");
+      },
+    },
+  });
+
+  const response = await handleInboundEmail(
+    new Request("http://localhost/api/inbound-email", {
+      method: "POST",
+      headers: { "x-forwarded-for": "203.0.113.10" },
+    }),
+    dependencies,
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: "Forbidden." });
+  assert.equal(dependencies.waitUntilCalls.length, 0);
+});
+
 test("handleInboundEmail returns 401 for an invalid signature", async () => {
   const dependencies = createDependencies({
     emailProvider: {
@@ -88,7 +116,13 @@ test("handleInboundEmail returns 401 for an invalid signature", async () => {
     },
   });
 
-  const response = await handleInboundEmail(new Request("http://localhost/api/inbound-email", { method: "POST" }), dependencies);
+  const response = await handleInboundEmail(
+    new Request("http://localhost/api/inbound-email", {
+      method: "POST",
+      headers: { "x-forwarded-for": "44.228.126.217" },
+    }),
+    dependencies,
+  );
 
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: "Invalid signature." });
@@ -105,6 +139,12 @@ test("handleInboundEmail rejects owner-address mail without a DMARC pass", async
         return createInboundEmail({ authenticationResults: [] });
       },
     },
+    async findUserByEmail() {
+      throw new Error("should not query users for failed authentication");
+    },
+    async countRecentAcceptedInboundMessages() {
+      throw new Error("should not rate limit failed authentication");
+    },
     async findOrCreateThread() {
       throw new Error("should not create thread for failed authentication");
     },
@@ -121,8 +161,8 @@ test("handleInboundEmail rejects owner-address mail without a DMARC pass", async
     dependencies,
   );
 
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { ok: false, error: "Sender authentication failed." });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, ignored: true, reason: "sender_authentication_failed" });
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 
@@ -138,6 +178,12 @@ test("handleInboundEmail rejects DMARC pass for a different From domain", async 
         });
       },
     },
+    async findUserByEmail() {
+      throw new Error("should not query users for failed authentication");
+    },
+    async countRecentAcceptedInboundMessages() {
+      throw new Error("should not rate limit failed authentication");
+    },
     async findOrCreateThread() {
       throw new Error("should not create thread for failed authentication");
     },
@@ -154,8 +200,8 @@ test("handleInboundEmail rejects DMARC pass for a different From domain", async 
     dependencies,
   );
 
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { ok: false, error: "Sender authentication failed." });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, ignored: true, reason: "sender_authentication_failed" });
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 
@@ -165,6 +211,10 @@ test("handleInboundEmail persists, enqueues, and schedules a valid owner email",
     async findUserByEmail(email) {
       callOrder.push(`user:${email}`);
       return { id: 1, email };
+    },
+    async countRecentAcceptedInboundMessages(userId) {
+      callOrder.push(`rate:${userId}`);
+      return 0;
     },
     async findOrCreateThread({ userId, inboundEmail }) {
       callOrder.push(`thread:${userId}:${inboundEmail.messageId}`);
@@ -196,6 +246,7 @@ test("handleInboundEmail persists, enqueues, and schedules a valid owner email",
   assert.ok(elapsedMs < 500, `Expected route to complete in under 500ms, got ${elapsedMs}`);
   assert.deepEqual(callOrder, [
     "user:owner@example.com",
+    "rate:1",
     "thread:1:<message@local.test>",
     "message:22:<message@local.test>:Please invoice Fable Co.",
     "job:22",
@@ -203,6 +254,32 @@ test("handleInboundEmail persists, enqueues, and schedules a valid owner email",
   ]);
   assert.equal(dependencies.waitUntilCalls.length, 1);
   await Promise.all(dependencies.waitUntilCalls);
+});
+
+test("handleInboundEmail ignores rate-limited owner emails without enqueueing agent work", async () => {
+  const dependencies = createDependencies({
+    async countRecentAcceptedInboundMessages() {
+      return 30;
+    },
+    async findOrCreateThread() {
+      throw new Error("should not create thread for rate-limited email");
+    },
+    async persistInboundMessage() {
+      throw new Error("should not persist rate-limited email");
+    },
+    async enqueueInboundJob() {
+      throw new Error("should not enqueue rate-limited email");
+    },
+  });
+
+  const response = await handleInboundEmail(
+    new Request("http://localhost/api/inbound-email", { method: "POST" }),
+    dependencies,
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, ignored: true, reason: "rate_limited" });
+  assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 
 test("handleInboundEmail treats duplicate Message-ID deliveries as a no-op for messages", async () => {
@@ -225,7 +302,7 @@ test("handleInboundEmail treats duplicate Message-ID deliveries as a no-op for m
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 
-test("handleInboundEmail rejects unknown senders without sending a bounce", async () => {
+test("handleInboundEmail acknowledges and ignores unknown senders without sending a bounce", async () => {
   const dependencies = createDependencies({
     emailProvider: {
       async verifyInboundSignature() {
@@ -238,6 +315,9 @@ test("handleInboundEmail rejects unknown senders without sending a bounce", asyn
     async findUserByEmail() {
       return null;
     },
+    async countRecentAcceptedInboundMessages() {
+      throw new Error("should not rate limit unknown senders");
+    },
   });
 
   const response = await handleInboundEmail(
@@ -245,7 +325,7 @@ test("handleInboundEmail rejects unknown senders without sending a bounce", asyn
     dependencies,
   );
 
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { ok: false, error: "Unknown sender." });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, ignored: true, reason: "unknown_sender" });
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
