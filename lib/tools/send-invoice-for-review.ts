@@ -24,7 +24,7 @@ export const sendInvoiceForReviewTool: Tool<SendInvoiceForReviewArgs> = {
       messageToOwner: {
         type: "string",
         description:
-          "Brief owner-facing note asking the owner to review the attached PDF. Do not summarize invoice metadata unless the owner explicitly asked for it.",
+          "Brief owner-facing note letting the owner know the invoice is attached. Do not summarize invoice metadata. Do flag any uncertainty if you had to make any assumptions while drafting.",
       },
     },
     required: ["invoiceId", "messageToOwner"],
@@ -105,8 +105,7 @@ export async function sendInvoiceForReview(
       threadStatus: "awaiting_approval",
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      pdfBlobKey: invoice.pdfBlobKey,
-      pdfUrl: invoice.pdfBlobKey,
+      pdfAttached: Boolean(pdfBuffer),
     },
   };
 }

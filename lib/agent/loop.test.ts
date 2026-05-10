@@ -81,6 +81,41 @@ test("agent context includes both thread subject and message body", () => {
   assert.ok(userMessage?.content?.includes("Body:\nPlease bill $200 plus a $25 kit fee."));
 });
 
+test("agent context replays persisted tool messages without inline PDF data", () => {
+  const context = createThreadContext();
+  context.messages.push({
+    id: 11,
+    threadId: 42,
+    sequenceNum: 2,
+    role: "tool",
+    content: JSON.stringify({
+      ok: true,
+      data: {
+        invoice: {
+          id: 123,
+          invoiceNumber: "2026-0001",
+          pdfAvailable: true,
+        },
+      },
+    }),
+    externalMessageId: null,
+    toolCalls: null,
+    toolCallId: "call_1",
+    toolName: "manage_invoice",
+    tokenUsage: null,
+    model: null,
+    createdAt: new Date(),
+  });
+
+  const messages = buildLLMMessages(context, "system prompt");
+  const serialized = JSON.stringify(messages);
+
+  assert.ok(!serialized.includes("inline-pdf:"));
+  assert.ok(!serialized.includes("pdfBlobKey"));
+  assert.ok(!serialized.includes("pdfUrl"));
+  assert.ok(serialized.includes("pdfAvailable"));
+});
+
 test("terminal tool execution stops the loop without another LLM call", async () => {
   const context = createThreadContext();
   const persistedRoles: string[] = [];

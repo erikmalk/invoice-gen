@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { clients, invoices, lineItems, users } from "../db/schema.ts";
 import { generateNextInvoiceNumber } from "../invoices/numbering.ts";
-import { makeInlinePdfBlobKey, pdfUrlForBlobKey, renderInvoicePdf } from "../invoices/pdf.ts";
 import type { Tool, ToolContext, ToolResult } from "./types.ts";
 
 const lineItemSchema = z.object({
@@ -34,7 +33,7 @@ type NormalizedLineItem = z.infer<typeof lineItemSchema> & {
 export const manageInvoiceTool: Tool<ManageInvoiceArgs> = {
   name: "manage_invoice",
   description:
-    "Create or update draft invoices. Creates line items, calculates totals, assigns invoice numbers, and returns a PDF artifact reference.",
+    "Create or update draft invoices. Creates line items, calculates totals, and assigns invoice numbers. The review-email tool generates the PDF attachment when needed.",
   parameters: {
     type: "object",
     properties: {
@@ -133,15 +132,7 @@ async function createInvoice(args: ManageInvoiceArgs, ctx: ToolContext): Promise
     .from(lineItems)
     .where(eq(lineItems.invoiceId, invoice.id))
     .orderBy(lineItems.position);
-  const pdfBuffer = await renderInvoicePdf({ invoice, lineItems: persistedItems, user: owner, client });
-  const pdfBlobKey = makeInlinePdfBlobKey(invoice, pdfBuffer);
-  const [updatedInvoice] = await ctx.db
-    .update(invoices)
-    .set({ pdfBlobKey, updatedAt: new Date() })
-    .where(eq(invoices.id, invoice.id))
-    .returning();
-
-  return invoiceResult(updatedInvoice ?? { ...invoice, pdfBlobKey }, persistedItems, client.companyName ?? client.contactName ?? client.email);
+  return invoiceResult(invoice, persistedItems, client.companyName ?? client.contactName ?? client.email);
 }
 
 async function updateInvoice(args: ManageInvoiceArgs, ctx: ToolContext): Promise<ToolResult> {
@@ -220,21 +211,8 @@ async function updateInvoice(args: ManageInvoiceArgs, ctx: ToolContext): Promise
     throw new Error(`Failed to update invoice ${existing.id}.`);
   }
 
-  const pdfBuffer = await renderInvoicePdf({
-    invoice: updatedInvoice,
-    lineItems: persistedItems,
-    user: owner,
-    client,
-  });
-  const pdfBlobKey = makeInlinePdfBlobKey(updatedInvoice, pdfBuffer);
-  const [invoiceWithPdf] = await ctx.db
-    .update(invoices)
-    .set({ pdfBlobKey, updatedAt: new Date() })
-    .where(eq(invoices.id, updatedInvoice.id))
-    .returning();
-
   return invoiceResult(
-    invoiceWithPdf ?? { ...updatedInvoice, pdfBlobKey },
+    updatedInvoice,
     persistedItems,
     client.companyName ?? client.contactName ?? client.email,
   );
@@ -291,8 +269,7 @@ function invoiceResult(
         taxCents: invoice.taxCents,
         totalCents: invoice.totalCents,
         notes: invoice.notes,
-        pdfBlobKey: invoice.pdfBlobKey,
-        pdfUrl: pdfUrlForBlobKey(invoice.pdfBlobKey),
+        pdfAvailable: true,
       },
       lineItems: items.map((item) => ({
         id: item.id,

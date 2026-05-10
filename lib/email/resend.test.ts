@@ -49,6 +49,7 @@ function createProvider(event: ResendInboundWebhookPayload, overrides: Partial<R
                 "Message-ID": event.data.message_id,
                 "In-Reply-To": "<root@local.test>",
                 References: "<root@local.test> <prior@local.test>",
+                "Authentication-Results": "mx.google.com; dmarc=pass header.from=gmail.com",
               },
               message_id: event.data.message_id,
               attachments: [
@@ -118,6 +119,7 @@ test("parseInbound normalizes verified inbound webhook payloads with inline cont
         "Message-ID": "<inline@local.test>",
         "In-Reply-To": "<root@local.test>",
         References: "<root@local.test> <prior@local.test>",
+        "Authentication-Results": "mx.google.com; dmarc=pass header.from=example.com",
       },
       attachments: [
         {
@@ -141,6 +143,7 @@ test("parseInbound normalizes verified inbound webhook payloads with inline cont
   assert.equal(inbound.messageId, "<inline@local.test>");
   assert.equal(inbound.inReplyTo, "<root@local.test>");
   assert.deepEqual(inbound.references, ["<root@local.test>", "<prior@local.test>"]);
+  assert.deepEqual(inbound.authenticationResults, ["mx.google.com; dmarc=pass header.from=example.com"]);
   assert.deepEqual(inbound.attachments, [
     {
       id: "email_123:brief.txt",

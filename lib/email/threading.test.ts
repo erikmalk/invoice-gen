@@ -22,6 +22,7 @@ function createInboundEmail(overrides: Partial<InboundEmail> = {}): InboundEmail
     to: [{ email: "invoice-gen@trimson.ai", name: "Invoice Bot" }],
     cc: [],
     bcc: [],
+    authenticationResults: [],
     subject: "Need an invoice",
     text: "Please invoice Fable Co.",
     html: "<p>Please invoice Fable Co.</p>",

@@ -26,6 +26,7 @@ function createInboundEmail(overrides: Partial<InboundEmail> = {}): InboundEmail
     to: [{ email: "invoice-gen@trimson.ai", name: "Invoice Bot" }],
     cc: [],
     bcc: [],
+    authenticationResults: ["mx.google.com; dmarc=pass header.from=example.com"],
     subject: "Need an invoice",
     text: "Please invoice Fable Co.",
     html: "<p>Please invoice Fable Co.</p>",
@@ -97,6 +98,76 @@ test("handleInboundEmail returns 401 for an invalid signature", async () => {
 
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: "Invalid signature." });
+  assert.equal(dependencies.waitUntilCalls.length, 0);
+});
+
+test("handleInboundEmail rejects owner-address mail without a DMARC pass", async () => {
+  const dependencies = createDependencies({
+    emailProvider: {
+      async verifyInboundSignature() {
+        return true;
+      },
+      async parseInbound() {
+        return createInboundEmail({ authenticationResults: [] });
+      },
+      async send() {
+        throw new Error("should not send bounce for failed authentication");
+      },
+    },
+    async findOrCreateThread() {
+      throw new Error("should not create thread for failed authentication");
+    },
+    async persistInboundMessage() {
+      throw new Error("should not persist failed authentication");
+    },
+    async enqueueInboundJob() {
+      throw new Error("should not enqueue failed authentication");
+    },
+  });
+
+  const response = await handleInboundEmail(
+    new Request("http://localhost/api/inbound-email", { method: "POST" }),
+    dependencies,
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { ok: false, error: "Sender authentication failed." });
+  assert.equal(dependencies.waitUntilCalls.length, 0);
+});
+
+test("handleInboundEmail rejects DMARC pass for a different From domain", async () => {
+  const dependencies = createDependencies({
+    emailProvider: {
+      async verifyInboundSignature() {
+        return true;
+      },
+      async parseInbound() {
+        return createInboundEmail({
+          authenticationResults: ["mx.google.com; dmarc=pass header.from=attacker.example"],
+        });
+      },
+      async send() {
+        throw new Error("should not send bounce for failed authentication");
+      },
+    },
+    async findOrCreateThread() {
+      throw new Error("should not create thread for failed authentication");
+    },
+    async persistInboundMessage() {
+      throw new Error("should not persist failed authentication");
+    },
+    async enqueueInboundJob() {
+      throw new Error("should not enqueue failed authentication");
+    },
+  });
+
+  const response = await handleInboundEmail(
+    new Request("http://localhost/api/inbound-email", { method: "POST" }),
+    dependencies,
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { ok: false, error: "Sender authentication failed." });
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 

@@ -14,6 +14,9 @@ import {
 import type { InboundEmail } from "../../../lib/email/types.ts";
 import { runJob } from "../../../lib/jobs/run.ts";
 
+const DMARC_PASS_PATTERN = /\bdmarc\s*=\s*pass\b/i;
+const DMARC_HEADER_FROM_PATTERN = /\bheader\.from\s*=\s*([^\s;]+)/i;
+
 export interface InboundEmailRouteDependencies {
   emailProvider: Pick<ResendEmailProvider, "verifyInboundSignature" | "parseInbound" | "send">;
   findUserByEmail(email: string): Promise<{ id: number; email: string } | null>;
@@ -104,6 +107,50 @@ async function sendUnknownSenderBounce(
   }
 }
 
+function hasPassingEmailAuthentication(inboundEmail: InboundEmail) {
+  const senderDomain = inboundEmail.from.email.split("@").at(-1)?.toLowerCase();
+
+  if (!senderDomain) {
+    return false;
+  }
+
+  return inboundEmail.authenticationResults.some((result) =>
+    DMARC_PASS_PATTERN.test(result) && dmarcHeaderFromMatchesSender(result, senderDomain),
+  );
+}
+
+function dmarcHeaderFromMatchesSender(authenticationResult: string, senderDomain: string) {
+  const headerFromDomain = DMARC_HEADER_FROM_PATTERN.exec(authenticationResult)?.[1]
+    ?.trim()
+    .toLowerCase()
+    .replace(/[)>.,]+$/, "");
+
+  return headerFromDomain === senderDomain;
+}
+
+function logInboundAuthenticationDecision(input: {
+  inboundEmail: InboundEmail;
+  authenticated: boolean;
+  userMatched: boolean;
+}) {
+  const { inboundEmail, authenticated, userMatched } = input;
+
+  console.info(
+    "Inbound email authentication decision",
+    JSON.stringify({
+      authenticated,
+      userMatched,
+      from: inboundEmail.from.email,
+      to: inboundEmail.to.map((address) => address.email),
+      cc: inboundEmail.cc.map((address) => address.email),
+      bcc: inboundEmail.bcc.map((address) => address.email),
+      messageId: inboundEmail.messageId,
+      providerMessageId: inboundEmail.providerMessageId,
+      authenticationResults: inboundEmail.authenticationResults,
+    }),
+  );
+}
+
 const defaultDependencies: InboundEmailRouteDependencies = {
   emailProvider: resendEmailProvider,
   findUserByEmail,
@@ -128,6 +175,17 @@ export async function handleInboundEmail(
 
   const inboundEmail = await dependencies.emailProvider.parseInbound(req);
   const user = await dependencies.findUserByEmail(inboundEmail.from.email);
+  const isAuthenticated = hasPassingEmailAuthentication(inboundEmail);
+
+  logInboundAuthenticationDecision({
+    inboundEmail,
+    authenticated: isAuthenticated,
+    userMatched: Boolean(user),
+  });
+
+  if (!isAuthenticated) {
+    return Response.json({ ok: false, error: "Sender authentication failed." }, { status: 403 });
+  }
 
   if (!user) {
     dependencies.waitUntil(sendUnknownSenderBounce(dependencies.emailProvider, inboundEmail.from.email));

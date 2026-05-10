@@ -40,6 +40,7 @@ export interface InboundEmail {
   to: NormalizedEmailAddress[];
   cc: NormalizedEmailAddress[];
   bcc: NormalizedEmailAddress[];
+  authenticationResults: string[];
   subject: string;
   text: string;
   html: string;

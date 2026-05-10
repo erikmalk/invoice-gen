@@ -12,6 +12,7 @@ import type {
 const HEADER_MESSAGE_ID = "message-id";
 const HEADER_IN_REPLY_TO = "in-reply-to";
 const HEADER_REFERENCES = "references";
+const HEADER_AUTHENTICATION_RESULTS = "authentication-results";
 
 type ResendResponse<T> =
   | { data: T; error: null }
@@ -155,6 +156,19 @@ function parseMessageIdList(value: string | null | undefined) {
   }
 
   return Array.from(value.matchAll(/<[^>]+>/g), (match) => match[0]);
+}
+
+function collectHeaderValues(headers: Record<string, string> | null | undefined, name: string) {
+  if (!headers) {
+    return [];
+  }
+
+  const target = name.toLowerCase();
+
+  return Object.entries(headers)
+    .filter(([key]) => key.toLowerCase() === target)
+    .map(([, value]) => value)
+    .filter(Boolean);
 }
 
 function normalizeMessageId(value: string | null | undefined) {
@@ -321,6 +335,7 @@ export class ResendEmailProvider implements EmailProvider {
       to: parseAddressList(receivingEmail?.to ?? event.data.to),
       cc: parseAddressList(receivingEmail?.cc ?? event.data.cc),
       bcc: parseAddressList(receivingEmail?.bcc ?? event.data.bcc),
+      authenticationResults: collectHeaderValues(headers, HEADER_AUTHENTICATION_RESULTS),
       subject: receivingEmail?.subject ?? event.data.subject ?? "",
       text: receivingEmail?.text ?? event.data.text ?? "",
       html: receivingEmail?.html ?? event.data.html ?? "",

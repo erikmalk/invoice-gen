@@ -242,11 +242,6 @@ export async function renderInvoicePdf(input: InvoicePdfInput): Promise<Buffer> 
   return Buffer.isBuffer(rendered) ? rendered : Buffer.from(rendered);
 }
 
-export function makeInlinePdfBlobKey(invoice: Invoice, pdfBuffer: Buffer) {
-  const encoded = pdfBuffer.toString("base64url");
-  return `inline-pdf:${invoice.invoiceNumber}:${encoded}`;
-}
-
 export function pdfBufferFromInlineBlobKey(pdfBlobKey: string | null | undefined) {
   if (!pdfBlobKey?.startsWith("inline-pdf:")) {
     return null;
@@ -262,6 +257,3 @@ export function pdfBufferFromInlineBlobKey(pdfBlobKey: string | null | undefined
   return buffer.subarray(0, 5).toString("utf8") === "%PDF-" ? buffer : null;
 }
 
-export function pdfUrlForBlobKey(pdfBlobKey: string | null) {
-  return pdfBlobKey ? pdfBlobKey : null;
-}
