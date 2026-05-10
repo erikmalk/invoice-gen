@@ -1,15 +1,16 @@
 import OpenAI from "openai";
 import type {
-  ChatCompletion,
-  ChatCompletionAssistantMessageParam,
-  ChatCompletionCreateParamsNonStreaming,
-  ChatCompletionFunctionTool,
-  ChatCompletionMessage,
-  ChatCompletionMessageParam,
-  ChatCompletionMessageToolCall,
-  ChatCompletionToolChoiceOption,
-  ChatCompletionToolMessageParam,
-} from "openai/resources/chat/completions/completions";
+  FunctionTool,
+  Response as OpenAIResponse,
+  ResponseCreateParamsNonStreaming,
+  ResponseFunctionToolCall,
+  ResponseInput,
+  ResponseInputItem,
+  ResponseOutputItem,
+  ResponseOutputMessage,
+  ResponseUsage,
+  ToolChoiceOptions,
+} from "openai/resources/responses/responses";
 
 import type {
   ChatMessage,
@@ -24,12 +25,8 @@ import type {
 } from "./types.ts";
 
 export interface OpenAIClientLike {
-  chat: {
-    completions: {
-      create(
-        request: ChatCompletionCreateParamsNonStreaming,
-      ): Promise<ChatCompletion>;
-    };
+  responses: {
+    create(request: ResponseCreateParamsNonStreaming): Promise<OpenAIResponse>;
   };
 }
 
@@ -46,122 +43,135 @@ export class OpenAIChatClient implements LLMClient {
   }
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
-    const completion = await this.client.chat.completions.create({
+    const response = await this.client.responses.create({
       model: req.model,
-      messages: toOpenAIChatMessages(req.messages),
-      tools: req.tools ? toOpenAITools(req.tools) : undefined,
-      tool_choice: toOpenAIToolChoice(req.toolChoice),
+      input: toOpenAIResponseInput(req.messages),
+      tools: req.tools ? toOpenAIResponseTools(req.tools) : undefined,
+      tool_choice: toOpenAIResponseToolChoice(req.toolChoice),
+      parallel_tool_calls: true,
       stream: false,
-    } satisfies ChatCompletionCreateParamsNonStreaming);
+    } satisfies ResponseCreateParamsNonStreaming);
 
-    return fromOpenAIChatCompletion(completion);
+    return fromOpenAIResponse(response);
   }
 }
 
-export function toOpenAIChatMessages(messages: ChatMessage[]): ChatCompletionMessageParam[] {
-  return messages.map((message) => {
+export function toOpenAIResponseInput(messages: ChatMessage[]): ResponseInput {
+  return messages.flatMap((message) => {
     switch (message.role) {
       case "system":
-        return {
-          role: "system",
-          content: message.content ?? "",
-        };
       case "user":
-        return {
-          role: "user",
-          content: message.content ?? "",
-        };
+        return [{ role: message.role, content: message.content ?? "", type: "message" }];
       case "assistant":
-        return toOpenAIAssistantMessage(message);
+        return toOpenAIResponseAssistantItems(message);
       case "tool":
-        return toOpenAIToolMessage(message);
+        return [toOpenAIResponseToolOutput(message)];
       default:
         throw new Error(`Unsupported chat message role: ${message.role}`);
     }
   });
 }
 
-export function toOpenAITools(tools: ToolDefinition[]): ChatCompletionFunctionTool[] {
+export function toOpenAIResponseTools(tools: ToolDefinition[]): FunctionTool[] {
   return tools.map((tool) => ({
     type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters as JSONSchema,
-    },
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters as JSONSchema,
+    strict: false,
   }));
 }
 
-export function toOpenAIToolChoice(
+export function toOpenAIResponseToolChoice(
   toolChoice: ToolChoice | undefined,
-): ChatCompletionToolChoiceOption | undefined {
+): ToolChoiceOptions | undefined {
   return toolChoice;
 }
 
-export function fromOpenAIChatCompletion(completion: ChatCompletion): ChatResponse {
-  const choice = completion.choices[0];
+export function fromOpenAIResponse(response: OpenAIResponse): ChatResponse {
+  return {
+    message: fromOpenAIResponseOutput(response.output),
+    usage: normalizeUsage(response.usage),
+    model: response.model,
+  };
+}
 
-  if (!choice) {
-    throw new Error("OpenAI returned no choices.");
+export function fromOpenAIResponseOutput(output: ResponseOutputItem[]): ChatMessage {
+  const contentParts: string[] = [];
+  const toolCalls: ToolCall[] = [];
+
+  for (const item of output) {
+    if (isOutputMessage(item)) {
+      const messageText = item.content
+        .map((part) => (part.type === "output_text" ? part.text : part.refusal))
+        .filter(Boolean)
+        .join("\n");
+
+      if (messageText) {
+        contentParts.push(messageText);
+      }
+    }
+
+    if (isFunctionToolCall(item)) {
+      toolCalls.push(fromOpenAIResponseToolCall(item));
+    }
   }
 
   return {
-    message: fromOpenAIChatMessage(choice.message),
-    usage: normalizeUsage(completion.usage),
-    model: completion.model,
-  };
-}
-
-export function fromOpenAIChatMessage(message: ChatCompletionMessage): ChatMessage {
-  return {
     role: "assistant",
-    content: message.content ?? undefined,
-    toolCalls: message.tool_calls?.map(fromOpenAIToolCall),
+    content: contentParts.length > 0 ? contentParts.join("\n") : undefined,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
   };
 }
 
-function toOpenAIAssistantMessage(message: ChatMessage): ChatCompletionAssistantMessageParam {
-  const hasToolCalls = Boolean(message.toolCalls?.length);
+function toOpenAIResponseAssistantItems(message: ChatMessage): ResponseInputItem[] {
+  const items: ResponseInputItem[] = [];
 
+  if (message.content) {
+    items.push({
+      role: "assistant",
+      content: message.content,
+      type: "message",
+    });
+  }
+
+  for (const toolCall of message.toolCalls ?? []) {
+    items.push(toOpenAIResponseToolCall(toolCall));
+  }
+
+  if (items.length === 0) {
+    items.push({ role: "assistant", content: "", type: "message" });
+  }
+
+  return items;
+}
+
+function toOpenAIResponseToolCall(toolCall: ToolCall): ResponseFunctionToolCall {
   return {
-    role: "assistant",
-    content: hasToolCalls ? (message.content ?? null) : (message.content ?? ""),
-    tool_calls: message.toolCalls?.map(toOpenAIToolCall),
+    type: "function_call",
+    call_id: toolCall.id,
+    name: toolCall.name,
+    arguments: JSON.stringify(toolCall.arguments ?? {}),
   };
 }
 
-function toOpenAIToolMessage(message: ChatMessage): ChatCompletionToolMessageParam {
+function toOpenAIResponseToolOutput(message: ChatMessage): ResponseInputItem.FunctionCallOutput {
   if (!message.toolCallId) {
     throw new Error("Tool messages require toolCallId.");
   }
 
   return {
-    role: "tool",
-    content: message.content ?? "",
-    tool_call_id: message.toolCallId,
+    type: "function_call_output",
+    call_id: message.toolCallId,
+    output: message.content ?? "",
   };
 }
 
-function toOpenAIToolCall(toolCall: ToolCall): ChatCompletionMessageToolCall {
+function fromOpenAIResponseToolCall(toolCall: ResponseFunctionToolCall): ToolCall {
   return {
-    id: toolCall.id,
-    type: "function",
-    function: {
-      name: toolCall.name,
-      arguments: JSON.stringify(toolCall.arguments ?? {}),
-    },
-  };
-}
-
-function fromOpenAIToolCall(toolCall: ChatCompletionMessageToolCall): ToolCall {
-  if (toolCall.type !== "function") {
-    throw new Error(`Unsupported OpenAI tool call type: ${toolCall.type}`);
-  }
-
-  return {
-    id: toolCall.id,
-    name: toolCall.function.name,
-    arguments: parseToolArguments(toolCall.function.arguments),
+    id: toolCall.call_id,
+    name: toolCall.name,
+    arguments: parseToolArguments(toolCall.arguments),
   };
 }
 
@@ -179,27 +189,29 @@ function parseToolArguments(value: string): unknown {
   }
 }
 
-function normalizeUsage(
-  usage:
-    | {
-        prompt_tokens?: number;
-        completion_tokens?: number;
-        total_tokens?: number;
-      }
-    | undefined,
-): TokenUsage | undefined {
-  if (
-    usage?.prompt_tokens === undefined ||
-    usage.completion_tokens === undefined ||
-    usage.total_tokens === undefined
-  ) {
+function isOutputMessage(item: ResponseOutputItem): item is ResponseOutputMessage {
+  return item.type === "message";
+}
+
+function isFunctionToolCall(item: ResponseOutputItem): item is ResponseFunctionToolCall {
+  return item.type === "function_call";
+}
+
+function normalizeUsage(usage: ResponseUsage | undefined): TokenUsage | undefined {
+  if (!usage) {
     return undefined;
   }
 
   return {
-    prompt: usage.prompt_tokens,
-    completion: usage.completion_tokens,
+    prompt: usage.input_tokens,
+    completion: usage.output_tokens,
     total: usage.total_tokens,
   };
 }
 
+// Backwards-compatible exports for existing tests/imports while the app-level
+// abstraction remains LLMClient.chat(...).
+export const toOpenAIChatMessages = toOpenAIResponseInput;
+export const toOpenAITools = toOpenAIResponseTools;
+export const toOpenAIToolChoice = toOpenAIResponseToolChoice;
+export const fromOpenAIChatCompletion = fromOpenAIResponse;

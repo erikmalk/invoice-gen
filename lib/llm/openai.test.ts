@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { Response as OpenAIResponse } from "openai/resources/responses/responses";
+
 import { FakeLLMClient } from "./fake.ts";
 import {
   OpenAIChatClient,
-  fromOpenAIChatCompletion,
-  toOpenAIChatMessages,
-  toOpenAITools,
+  fromOpenAIResponse,
+  toOpenAIResponseInput,
+  toOpenAIResponseTools,
 } from "./openai.ts";
 import type { ChatResponse, ToolDefinition } from "./types.ts";
 
@@ -25,7 +27,7 @@ const helloTool: ToolDefinition = {
   },
 };
 
-test("roundtrips a tool call between normalized and OpenAI shapes", async () => {
+test("roundtrips a tool call between normalized and OpenAI Responses shapes", async () => {
   const messages = [
     {
       role: "system" as const,
@@ -55,73 +57,54 @@ test("roundtrips a tool call between normalized and OpenAI shapes", async () => 
     },
   ];
 
-  const openAIMessages = toOpenAIChatMessages(messages);
+  const openAIInput = toOpenAIResponseInput(messages);
 
-  assert.deepEqual(openAIMessages[2], {
-    role: "assistant",
-    content: null,
-    tool_calls: [
-      {
-        id: "call_123",
-        type: "function",
-        function: {
-          name: "hello_world",
-          arguments: JSON.stringify({ name: "Erik" }),
-        },
-      },
-    ],
+  assert.deepEqual(openAIInput[2], {
+    type: "function_call",
+    call_id: "call_123",
+    name: "hello_world",
+    arguments: JSON.stringify({ name: "Erik" }),
   });
 
-  assert.deepEqual(openAIMessages[3], {
-    role: "tool",
-    content: JSON.stringify({ greeting: "Hello, Erik!" }),
-    tool_call_id: "call_123",
+  assert.deepEqual(openAIInput[3], {
+    type: "function_call_output",
+    call_id: "call_123",
+    output: JSON.stringify({ greeting: "Hello, Erik!" }),
   });
 
-  assert.deepEqual(toOpenAITools([helloTool]), [
+  assert.deepEqual(toOpenAIResponseTools([helloTool]), [
     {
       type: "function",
-      function: {
-        name: "hello_world",
-        description: "Returns a greeting.",
-        parameters: helloTool.parameters,
-      },
+      name: "hello_world",
+      description: "Returns a greeting.",
+      parameters: helloTool.parameters,
+      strict: false,
     },
   ]);
 
-  const response = fromOpenAIChatCompletion({
-    id: "chatcmpl_123",
-    object: "chat.completion",
-    created: 1,
+  const response = fromOpenAIResponse({
+    id: "resp_123",
+    object: "response",
+    created_at: 1,
     model: "gpt-5.4",
-    choices: [
+    output: [
       {
-        index: 0,
-        finish_reason: "tool_calls",
-        logprobs: null,
-        message: {
-          role: "assistant",
-          content: null,
-          refusal: null,
-          tool_calls: [
-            {
-              id: "call_123",
-              type: "function",
-              function: {
-                name: "hello_world",
-                arguments: JSON.stringify({ name: "Erik" }),
-              },
-            },
-          ],
-        },
+        id: "fc_123",
+        type: "function_call",
+        call_id: "call_123",
+        name: "hello_world",
+        arguments: JSON.stringify({ name: "Erik" }),
+        status: "completed",
       },
     ],
     usage: {
-      prompt_tokens: 10,
-      completion_tokens: 4,
+      input_tokens: 10,
+      output_tokens: 4,
       total_tokens: 14,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
     },
-  });
+  } as OpenAIResponse);
 
   assert.deepEqual(response, {
     model: "gpt-5.4",
@@ -182,54 +165,46 @@ test("handles a response with no tool calls", async () => {
   ]);
 });
 
-test("handles multiple tool calls in one turn", async () => {
+test("handles multiple tool calls in one Responses turn", async () => {
   const client = new OpenAIChatClient({
     client: {
-      chat: {
-        completions: {
-          async create() {
-            return {
-              id: "chatcmpl_multi",
-              object: "chat.completion",
-              created: 1,
-              model: "gpt-5.4",
-              choices: [
-                {
-                  index: 0,
-                  finish_reason: "tool_calls",
-                  logprobs: null,
-                  message: {
-                    role: "assistant",
-                    content: null,
-                    refusal: null,
-                    tool_calls: [
-                      {
-                        id: "call_1",
-                        type: "function",
-                        function: {
-                          name: "hello_world",
-                          arguments: JSON.stringify({ name: "Erik" }),
-                        },
-                      },
-                      {
-                        id: "call_2",
-                        type: "function",
-                        function: {
-                          name: "hello_world",
-                          arguments: JSON.stringify({ name: "Invoice Bot" }),
-                        },
-                      },
-                    ],
-                  },
-                },
-              ],
-              usage: {
-                prompt_tokens: 11,
-                completion_tokens: 8,
-                total_tokens: 19,
+      responses: {
+        async create(request) {
+          assert.equal(request.model, "gpt-5.4");
+          assert.equal(request.tool_choice, "required");
+          assert.equal(request.parallel_tool_calls, true);
+
+          return {
+            id: "resp_multi",
+            object: "response",
+            created_at: 1,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: "fc_1",
+                type: "function_call",
+                call_id: "call_1",
+                name: "hello_world",
+                arguments: JSON.stringify({ name: "Erik" }),
+                status: "completed",
               },
-            };
-          },
+              {
+                id: "fc_2",
+                type: "function_call",
+                call_id: "call_2",
+                name: "hello_world",
+                arguments: JSON.stringify({ name: "Invoice Bot" }),
+                status: "completed",
+              },
+            ],
+            usage: {
+              input_tokens: 11,
+              output_tokens: 8,
+              total_tokens: 19,
+              input_tokens_details: { cached_tokens: 0 },
+              output_tokens_details: { reasoning_tokens: 0 },
+            },
+          } as OpenAIResponse;
         },
       },
     },
