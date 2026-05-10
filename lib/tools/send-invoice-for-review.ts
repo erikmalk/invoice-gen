@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { clients, invoices, lineItems, messages, threads, users } from "../db/schema.ts";
+import { pdfBufferFromInlineBlobKey, renderInvoicePdf } from "../invoices/pdf.ts";
 import type { Tool, ToolContext, ToolResult } from "./types.ts";
 
 const sendInvoiceForReviewSchema = z.object({
@@ -66,10 +67,11 @@ export async function sendInvoiceForReview(
     .orderBy(lineItems.position);
   const latestInbound = await latestInboundMessage(ctx);
   const invoiceSummary = summarizeInvoice(invoice, items, client?.companyName ?? client?.contactName ?? client?.email);
+  const pdfBuffer = client ? pdfBufferFromInlineBlobKey(invoice.pdfBlobKey) ?? await renderInvoicePdf({ invoice, lineItems: items, user: owner, client }) : null;
 
   const sent = await ctx.emailProvider.send({
     to: [{ email: owner.email, name: owner.name ?? undefined }],
-    subject: `Review draft invoice ${invoice.invoiceNumber}`,
+    subject: thread.subject ? `Re: ${thread.subject}` : `Review draft invoice ${invoice.invoiceNumber}`,
     text: `${args.messageToOwner}\n\n${invoiceSummary}`,
     html: `<p>${escapeHtml(args.messageToOwner)}</p><pre>${escapeHtml(invoiceSummary)}</pre>`,
     thread: {
@@ -79,12 +81,12 @@ export async function sendInvoiceForReview(
         (value): value is string => Boolean(value),
       ),
     },
-    attachments: invoice.pdfBlobKey
+    attachments: pdfBuffer
       ? [
           {
-            filename: `invoice-${invoice.invoiceNumber}.txt`,
-            content: invoiceSummary,
-            contentType: "text/plain",
+            filename: `invoice-${invoice.invoiceNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
           },
         ]
       : undefined,
@@ -143,7 +145,7 @@ function summarizeInvoice(
     `Subtotal: ${formatCents(invoice.subtotalCents, invoice.currency)}`,
     `Tax: ${formatCents(invoice.taxCents, invoice.currency)}`,
     `Total: ${formatCents(invoice.totalCents, invoice.currency)}`,
-    invoice.pdfBlobKey ? `PDF artifact: ${invoice.pdfBlobKey}` : "PDF artifact: not available",
+    invoice.pdfBlobKey ? "PDF: attached" : "PDF: not available",
   ].join("\n");
 }
 
