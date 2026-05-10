@@ -66,7 +66,7 @@ function createThreadContext(): ThreadContext {
 const persona: PersonaConfig = {
   entryPoint: "invoice-gen",
   name: "Invoice Generator",
-  systemPromptPath: "prompts/invoice-gen.md",
+  systemPrompt: "test system prompt for {{user_profile}}",
   toolNames: ["terminal_tool"],
   model: "fake-model",
   maxSteps: 5,

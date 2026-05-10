@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 import { eq, sql } from "drizzle-orm";
 
 import { db as defaultDb } from "../db/client.ts";
@@ -11,7 +8,6 @@ import { createLLMClientForModel } from "../llm/index.ts";
 import type { ChatMessage, ChatResponse, LLMClient, ToolCall } from "../llm/types.ts";
 import { toolRegistry, toolsForPersona } from "../tools/registry.ts";
 import { toolToDefinition, type AppDb, type Tool, type ToolContext, type ToolResult } from "../tools/types.ts";
-import { DEFAULT_INVOICE_GEN_PROMPT } from "./default-prompts.ts";
 import { personaForEntryPoint } from "./personas.ts";
 import { runStep } from "./step.ts";
 import type { PersonaConfig } from "./types.ts";
@@ -164,27 +160,7 @@ export function buildLLMMessages(context: ThreadContext, systemPrompt: string): 
 }
 
 export async function loadAndRenderSystemPrompt(persona: PersonaConfig, context: ThreadContext) {
-  const promptPath = path.resolve(process.cwd(), persona.systemPromptPath);
-  const prompt = await readPromptFile(promptPath);
-
-  return prompt.replace("{{user_profile}}", renderUserProfile(context.user));
-}
-
-async function readPromptFile(promptPath: string) {
-  try {
-    return await readFile(promptPath, "utf8");
-  } catch (error) {
-    if (isMissingPromptFileError(error)) {
-      console.warn(`Prompt file ${promptPath} was not found; using bundled invoice-gen prompt fallback.`);
-      return DEFAULT_INVOICE_GEN_PROMPT;
-    }
-
-    throw error;
-  }
-}
-
-function isMissingPromptFileError(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+  return persona.systemPrompt.replace("{{user_profile}}", renderUserProfile(context.user));
 }
 
 function messageToChatMessage(thread: Thread, message: Message): ChatMessage {

@@ -134,7 +134,7 @@ The inbound email's **To:** address determines the persona:
 
 | Address | Persona | System prompt | Tool subset |
 |---|---|---|---|
-| `invoice-gen@trimson.ai` | Invoice Generator | `prompts/invoice-gen.md` | manage_invoice, search_client_db, send_invoice_for_review, request_clarification |
+| `invoice-gen@trimson.ai` | Invoice Generator | `settings.invoice_gen_system_prompt` | manage_invoice, search_client_db, send_invoice_for_review, request_clarification |
 | `expense-report@trimson.ai` | *(future)* | — | — |
 
 Personas are configured in the `settings` table under `personas` or equivalent. Adding a persona = new row + new prompt file, no deploy necessary if prompt is in DB (decision deferred — probably file-based for v1 for diffability, DB-backed later).
@@ -254,7 +254,7 @@ Seeded keys (initial):
 - `invoice_gen_model_name` — `"gpt-5.4"`
 - `invoice_gen_max_agent_steps` — `10`
 - `invoice_gen_max_wall_clock_seconds` — `600`
-- `invoice_gen_system_prompt_path` — `"prompts/invoice-gen.md"`
+- `invoice_gen_system_prompt` — system prompt text for the invoice generator agent
 - `invoice_gen_require_approval_for_send_to_client` — `true`
 - `invoice_gen_default_currency` — `"USD"`
 - `owner_user_id` — `1`
@@ -605,9 +605,9 @@ OWNER_EMAIL=
 **Goal:** a function `runAgentLoop(threadId)` that, given a thread with queued messages, runs the bounded loop and persists everything.
 
 **Tasks:**
-1. `lib/agent/types.ts` — re-exports from llm types plus `PersonaConfig { name, systemPromptPath, toolNames[], model, maxSteps, maxWallClockSeconds }`.
-2. `lib/agent/personas.ts` — hardcoded registry for `invoice-gen` persona pointing at `/prompts/invoice-gen.md` and the four v1 tools. Future personas add rows here.
-3. `/prompts/invoice-gen.md` — the system prompt. Include placeholders for `{{user_profile}}`, `{{matched_clients}}` (optional), etc. Render via simple string replace (not a templating engine).
+1. `lib/agent/types.ts` — re-exports from llm types plus `PersonaConfig { name, systemPrompt, toolNames[], model, maxSteps, maxWallClockSeconds }`.
+2. `lib/agent/personas.ts` — registry for `invoice-gen` that loads the runtime prompt from `settings.invoice_gen_system_prompt` and falls back to the bundled default only if the setting is missing.
+3. `lib/agent/default-prompts.ts` — bundled bootstrap/fallback prompt used by seeding and missing-setting recovery. Runtime prompt iteration should happen in the settings table.
 4. `lib/agent/step.ts` — the `runStep(name, fn)` wrapper. In v1 it simply awaits `fn()`, records duration, and on error writes to the active `jobs` row. **This is the migration seam to Inngest/Temporal/etc. (see §10.1) — keep its surface minimal and provider-agnostic.**
 5. `lib/agent/loop.ts`:
    - Load thread, user, persona, message history — **via `runStep`**.
@@ -784,7 +784,7 @@ The migration itself should be a one-afternoon task because of the conventions i
 ## 11. Open questions / deferred decisions
 
 - **PDF storage:** Vercel Blob vs. inline in DB vs. Cloudflare R2. Phase 4 decides. Default leaning: Vercel Blob for first cut.
-- **Prompt storage:** file vs. DB-backed. File for v1 (diffable, versioned in git), migrate to DB if non-dev editing becomes needed.
+- **Prompt storage:** DB-backed via `settings.invoice_gen_system_prompt`, with a bundled code fallback only for bootstrap/missing-setting recovery so local and production use the same runtime prompt source.
 - **Approval policy granularity:** currently a boolean per tool. May need per-action inside `manage_invoice` (already designed that way — `create` and `update` on draft don't require; `approve`/`void`/`delete` do).
 - **Client-facing send:** sending the final approved invoice *to the client* is intentionally NOT in v1. The owner forwards manually. Added later as a new tool with `requiresApproval=true`.
 - **Stripe:** schema only. Code lands in a future plan.

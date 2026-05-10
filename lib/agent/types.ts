@@ -10,7 +10,7 @@ export type {
 export interface PersonaConfig {
   entryPoint: string;
   name: string;
-  systemPromptPath: string;
+  systemPrompt: string;
   toolNames: string[];
   model: string;
   maxSteps: number;

@@ -14,8 +14,8 @@
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:check": "drizzle-kit check --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
-    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.ts",
-    "db:seed": "node --env-file-if-exists=.env.local scripts/seed.ts",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.ts",
+    "db:seed": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "dev:send-email": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/dev-send-email.ts",
     "dev:run-job": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/dev-run-job.ts"

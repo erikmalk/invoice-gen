@@ -3,11 +3,13 @@ import { z } from "zod";
 
 import { db } from "../lib/db/client.ts";
 import { settings, users } from "../lib/db/schema.ts";
+import { DEFAULT_INVOICE_GEN_PROMPT } from "../lib/agent/default-prompts.ts";
 
 type SeedSetting = {
   key: string;
   value: unknown;
   description: string;
+  overwriteExisting?: boolean;
 };
 
 const seedEnvSchema = z.object({
@@ -39,8 +41,8 @@ const baseSeededSettings = [
     description: "Maximum wall-clock runtime allowed for a single agent job.",
   },
   {
-    key: "invoice_gen_system_prompt_path",
-    description: "File path for the invoice generator system prompt.",
+    key: "invoice_gen_system_prompt",
+    description: "System prompt text for the invoice generator agent. This database setting is the runtime source of truth.",
   },
   {
     key: "invoice_gen_require_approval_for_send_to_client",
@@ -131,14 +133,17 @@ async function upsertSetting(input: SeedSetting) {
     .onConflictDoUpdate({
       target: settings.key,
       set: {
-        value: input.value,
+        ...(input.overwriteExisting === false ? {} : { value: input.value }),
         description: input.description,
         updatedAt: new Date(),
       },
-      setWhere: sql`
-        ${settings.value} is distinct from ${JSON.stringify(input.value)}::jsonb
-        or ${settings.description} is distinct from ${input.description}
-      `,
+      setWhere:
+        input.overwriteExisting === false
+          ? sql`${settings.description} is distinct from ${input.description}`
+          : sql`
+              ${settings.value} is distinct from ${JSON.stringify(input.value)}::jsonb
+              or ${settings.description} is distinct from ${input.description}
+            `,
     });
 }
 
@@ -160,7 +165,8 @@ async function main() {
     },
     {
       ...baseSeededSettings[3],
-      value: "prompts/invoice-gen.md",
+      value: DEFAULT_INVOICE_GEN_PROMPT,
+      overwriteExisting: false,
     },
     {
       ...baseSeededSettings[4],
