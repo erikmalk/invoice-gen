@@ -18,7 +18,7 @@ const DMARC_PASS_PATTERN = /\bdmarc\s*=\s*pass\b/i;
 const DMARC_HEADER_FROM_PATTERN = /\bheader\.from\s*=\s*([^\s;]+)/i;
 
 export interface InboundEmailRouteDependencies {
-  emailProvider: Pick<ResendEmailProvider, "verifyInboundSignature" | "parseInbound" | "send">;
+  emailProvider: Pick<ResendEmailProvider, "verifyInboundSignature" | "parseInbound">;
   findUserByEmail(email: string): Promise<{ id: number; email: string } | null>;
   findOrCreateThread(input: {
     userId: number;
@@ -91,22 +91,6 @@ async function enqueueInboundJob(threadId: number) {
   return job.id;
 }
 
-async function sendUnknownSenderBounce(
-  emailProvider: Pick<ResendEmailProvider, "send">,
-  email: string,
-) {
-  try {
-    await emailProvider.send({
-      to: [{ email }],
-      subject: "Invoice Generator access required",
-      text: "Thanks for reaching out. This mailbox only accepts email from the authorized owner account right now. If you believe this is a mistake, please contact the account owner.",
-      html: "<p>Thanks for reaching out.</p><p>This mailbox only accepts email from the authorized owner account right now. If you believe this is a mistake, please contact the account owner.</p>",
-    });
-  } catch (error) {
-    console.error("Failed to send unknown sender bounce.", error);
-  }
-}
-
 function hasPassingEmailAuthentication(inboundEmail: InboundEmail) {
   const senderDomain = inboundEmail.from.email.split("@").at(-1)?.toLowerCase();
 
@@ -159,7 +143,6 @@ export async function handleInboundEmail(
   }
 
   if (!user) {
-    dependencies.waitUntil(sendUnknownSenderBounce(dependencies.emailProvider, inboundEmail.from.email));
     return Response.json({ ok: false, error: "Unknown sender." }, { status: 403 });
   }
 

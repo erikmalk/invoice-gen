@@ -49,9 +49,6 @@ function createDependencies(overrides: Partial<InboundEmailRouteDependencies> = 
       async parseInbound() {
         return createInboundEmail();
       },
-      async send() {
-        return { messageId: "bounce_123" };
-      },
     },
     async findUserByEmail(email) {
       return { id: 1, email };
@@ -88,9 +85,6 @@ test("handleInboundEmail returns 401 for an invalid signature", async () => {
       async parseInbound() {
         throw new Error("should not parse inbound");
       },
-      async send() {
-        return { messageId: "bounce_123" };
-      },
     },
   });
 
@@ -109,9 +103,6 @@ test("handleInboundEmail rejects owner-address mail without a DMARC pass", async
       },
       async parseInbound() {
         return createInboundEmail({ authenticationResults: [] });
-      },
-      async send() {
-        throw new Error("should not send bounce for failed authentication");
       },
     },
     async findOrCreateThread() {
@@ -145,9 +136,6 @@ test("handleInboundEmail rejects DMARC pass for a different From domain", async 
         return createInboundEmail({
           authenticationResults: ["mx.google.com; dmarc=pass header.from=attacker.example"],
         });
-      },
-      async send() {
-        throw new Error("should not send bounce for failed authentication");
       },
     },
     async findOrCreateThread() {
@@ -237,8 +225,7 @@ test("handleInboundEmail treats duplicate Message-ID deliveries as a no-op for m
   assert.equal(dependencies.waitUntilCalls.length, 0);
 });
 
-test("handleInboundEmail rejects unknown senders and schedules a polite bounce", async () => {
-  const bounceRecipients: string[] = [];
+test("handleInboundEmail rejects unknown senders without sending a bounce", async () => {
   const dependencies = createDependencies({
     emailProvider: {
       async verifyInboundSignature() {
@@ -246,10 +233,6 @@ test("handleInboundEmail rejects unknown senders and schedules a polite bounce",
       },
       async parseInbound() {
         return createInboundEmail({ from: { email: "intruder@example.com" } });
-      },
-      async send(message) {
-        bounceRecipients.push(message.to[0]?.email ?? "");
-        return { messageId: "bounce_123" };
       },
     },
     async findUserByEmail() {
@@ -264,7 +247,5 @@ test("handleInboundEmail rejects unknown senders and schedules a polite bounce",
 
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { ok: false, error: "Unknown sender." });
-  assert.equal(dependencies.waitUntilCalls.length, 1);
-  await Promise.all(dependencies.waitUntilCalls);
-  assert.deepEqual(bounceRecipients, ["intruder@example.com"]);
+  assert.equal(dependencies.waitUntilCalls.length, 0);
 });
