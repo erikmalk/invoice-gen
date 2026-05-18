@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Invoice Generator",
-  description: "Invoice Generator bootstrap placeholder app.",
+  description: "Email-first invoice assistant.",
 };
 
 export default function RootLayout({

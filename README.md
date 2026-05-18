@@ -1,97 +1,137 @@
-# invoice-gen
+# Invoice Generator
 
-AI-powered invoice generator scaffold built with patched Next.js 15, TypeScript, App Router, Tailwind, Drizzle, Neon, OpenAI, Resend, and Vercel.
+Email-first AI assistant for drafting invoices. The MVP is designed for a single owner workflow: the owner sends an invoice request by email, the app processes it, creates or updates a draft invoice, and emails the owner back for clarification or review with a PDF attachment.
 
-## Phase 0 status
-
-This repository currently contains only Phase 0 bootstrap work: project scaffolding, configuration, environment validation, deployment wiring, and a placeholder landing page.
+There is intentionally no public product UI right now. The root route returns a 404; the app is operated through email, the inbound webhook, database records, and scripts.
 
 ## Stack
 
-- Next.js 15 (App Router)
-- TypeScript
-- Tailwind CSS
-- ESLint
-- Drizzle ORM + drizzle-kit
-- Neon Postgres (intended via Vercel integration)
-- OpenAI SDK
-- Resend
-- `@react-pdf/renderer`
-- Vercel Functions helpers
+- Next.js 15 + TypeScript on Vercel
+- Postgres with Drizzle ORM, intended to run through the Vercel Postgres/Neon integration
+- Resend for inbound and outbound email
+- OpenAI Responses API for the invoice assistant
+- `@react-pdf/renderer` for invoice PDFs
 
-## Local development
+## Current MVP scope
 
-1. Copy `.env.example` to `.env.local` and fill in values.
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
-3. Start the app:
-   ```bash
-   pnpm dev
-   ```
-4. Open http://localhost:3000.
+Implemented:
 
-## Scripts
+- Resend inbound webhook at `POST /api/inbound-email`
+- Resend webhook signature verification and sender authentication checks
+- Owner/user, client, thread, message, job, invoice, line item, and settings tables
+- AI agent loop with tools for client lookup, draft invoice management, clarification requests, and owner review emails
+- PDF generation and owner-facing review email attachments
+- Basic tests, type checking, migrations, and seed script
 
-- `pnpm dev` — start the Next.js dev server
-- `pnpm build` — production build
-- `pnpm start` — start the production server
-- `pnpm lint` — run ESLint
-- `pnpm typecheck` — run TypeScript checks
-- `pnpm db:generate` — generate Drizzle migrations
-- `pnpm db:check` — validate Drizzle configuration / migrations state
+Not yet a full product:
+
+- No authenticated admin UI yet
+- No client-facing invoice sending flow yet
+- Client records currently need to be managed directly in Postgres or with future private tooling
+- Job recovery/cron support is not fully wired up yet
+
+## Prerequisites
+
+- Node.js 20+
+- pnpm
+- Vercel account/project
+- Postgres database, preferably via the Vercel Postgres/Neon integration
+- Resend account with a verified sending/receiving domain
+- OpenAI API key
 
 ## Environment variables
 
-See `.env.example` for the full list required by the current scaffold.
+Copy `.env.example` to `.env.local` for local development and add the same values to Vercel project environment variables.
 
-## Self-host setup checklist
+```bash
+cp .env.example .env.local
+```
 
-### Phase 0 — Project bootstrap
-- [x] Next.js app scaffolded
-- [x] Tailwind and ESLint configured
-- [x] Drizzle config added
-- [x] Env validation added
-- [x] Placeholder landing page added
-- [ ] Neon integration values populated
-- [ ] Production env vars fully configured
-- [ ] Resend inbound webhook configured (Phase 3)
+Required variables:
 
-### Phase 1 — Database schema & migrations
-- [ ] Planned
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection URL. Use the Vercel/Neon integration value or create an alias if the integration exposes a different name. |
+| `DATABASE_URL_UNPOOLED` | Direct/unpooled Postgres URL for Drizzle migrations and database access. Currently required by env validation. |
+| `OPENAI_API_KEY` | OpenAI key used by the assistant. |
+| `RESEND_API_KEY` | Resend key for sending email and reading received email payloads. |
+| `RESEND_WEBHOOK_SECRET` | Signing secret from the Resend inbound webhook. |
+| `EMAIL_FROM_ADDRESS` | Verified sender address on your domain, for example `invoices@example.com`. |
+| `EMAIL_FROM_NAME` | Display name for outbound owner emails. |
+| `OWNER_EMAIL` | Email address for the owner. The seed script creates/updates this user, and inbound email must come from a known user. |
+| `CRON_SECRET` | Required placeholder for planned cron routes. Use a long random value even though cron is not fully wired yet. |
 
-### Phase 2 — Email provider abstraction
-- [ ] Planned
+## Resend setup
 
-### Phase 3 — Inbound email webhook + job enqueue
-- [ ] Planned
+1. Verify your domain in Resend and configure the required DNS records.
+2. Choose the app email address on that domain, such as `invoices@your-domain.com`.
+3. Set `EMAIL_FROM_ADDRESS` to that address.
+4. Create a Resend API key and set `RESEND_API_KEY`.
+5. Configure inbound email in Resend for the domain/address.
+6. Add an `email.received` webhook pointing to:
 
-### Phase 4 — Tools & PDF generation
-- [ ] Planned
+   ```text
+   https://<your-vercel-domain>/api/inbound-email
+   ```
 
-### Phase 5a — Agent loop (synchronous, no email glue yet)
-- [ ] Planned
+7. Copy the webhook signing secret into `RESEND_WEBHOOK_SECRET`.
 
-### Phase 5b — Approval/revision loop over email
-- [ ] Planned
+Inbound messages are only accepted when they come through a valid Resend webhook, pass email authentication checks, and match a user in the database.
 
-### Phase 6 — Reliability, cron retries, observability
-- [ ] Planned
+## Database setup
 
-### Phase 7 — Minimal admin UI
-- [ ] Planned
+Install dependencies, run migrations, and seed the initial owner/settings rows:
 
-## Deployment notes
+```bash
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+```
 
-- Vercel project name: `invoice-gen`
-- Repo name: `invoice-gen`
-- Git-triggered deploys are disabled; preferred workflow is manual Vercel CLI deploys.
-- Use `vercel deploy --yes --scope example-team` for preview deploys.
-- Use `vercel deploy --prod --yes --scope example-team` for production deploys.
-- `vercel.json` explicitly sets `framework: "nextjs"` so Vercel serves the Next.js build correctly.
-- Current sender placeholder: `invoice-gen@example.com`.
-- Do not point Resend inbound webhooks anywhere yet; Phase 3 will use `/api/inbound-email` on the app domain.
+After seeding, update the owner profile and add real client records before using the app for actual invoice drafts. The PDF generator uses the owner/client data stored in Postgres.
+
+## Local development
+
+```bash
+pnpm dev
+```
+
+The app runs at `http://localhost:3000`, but the root page intentionally returns a 404. Most testing happens through the webhook route, database state, and email delivery.
+
+Useful checks:
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Useful development scripts:
+
+```bash
+pnpm dev:run-job                 # rerun the latest inbound-email job
+JOB_ID=<id> pnpm dev:run-job      # rerun a specific job
+pnpm dev:export-invoice-pdf       # export the latest invoice PDF to tmp/invoices
+pnpm db:update-invoice-gen-prompt # refresh the DB-backed prompt from source
+```
+
+## Deployment
+
+This project is configured for Vercel. Git-triggered deployments are disabled in `vercel.json`; use manual Vercel CLI deploys unless you intentionally change that policy.
+
+Preview deploy:
+
+```bash
+vercel deploy --yes --scope <your-vercel-scope>
+```
+
+Production deploy:
+
+```bash
+vercel deploy --prod --yes --scope <your-vercel-scope>
+```
+
+Make sure the production Vercel environment has all required environment variables before enabling the Resend webhook.
 
 ## License
 
