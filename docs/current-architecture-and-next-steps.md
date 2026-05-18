@@ -62,7 +62,7 @@ The app receives the email through Resend, persists the thread/message/job in Ne
 - `lib/llm/openai.ts` — OpenAI Responses API adapter.
 - `lib/tools/*` — invoice/client/email tool implementations.
 - `lib/invoices/numbering.ts` — invoice number generation.
-- `lib/invoices/pdf.ts` — current placeholder PDF/text artifact.
+- `lib/invoices/pdf.ts` — current `@react-pdf/renderer` invoice PDF renderer. Durable Blob/object storage is still deferred.
 - `scripts/dev-run-job.ts` — local runner for retrying/debugging DB jobs.
 - `scripts/dev-send-email.ts` — local signed webhook simulator.
 - `scripts/seed.ts` — owner/settings seed script.
@@ -92,7 +92,7 @@ The app receives the email through Resend, persists the thread/message/job in Ne
   - local `pnpm dev:run-job` retried the failed job,
   - owner received a clarification email.
 - DB-backed prompt setting is seeded and verified.
-- Latest production deployment was manually inspected as Ready after commit `7151ad8`.
+- Recent production deployments have been manually inspected as Ready after manual Vercel CLI deploys.
 
 ## Not yet fully tested
 
@@ -104,8 +104,8 @@ The app receives the email through Resend, persists the thread/message/job in Ne
   - owner review email.
 - Reply/revision flow after a draft has been sent for review.
 - Approval flow beyond the current first-pass design.
-- Attachments.
-- Real PDF rendering/storage.
+- Non-review-email attachments / inbound attachment handling.
+- Durable PDF storage/linking beyond the current generated attachment buffer.
 - Cron recovery for stuck/pending jobs.
 - Admin/client management UI and auth.
 
@@ -154,12 +154,11 @@ The app receives the email through Resend, persists the thread/message/job in Ne
 - Reclaim pending and stale running jobs.
 - Add tests for retry/stale-job behavior.
 
-### Phase D — Real invoice PDF/storage
+### Phase D — Durable invoice PDF storage
 
-- Replace the current text-buffer artifact in `lib/invoices/pdf.ts` with `@react-pdf/renderer`.
 - Decide storage, likely Vercel Blob for v1.
-- Store a real `pdf_blob_key`/URL.
-- Attach or link the real PDF in the owner review email.
+- Store a durable `pdf_blob_key`/URL instead of regenerating/attaching directly from a buffer.
+- Attach or link the stored PDF in the owner review email.
 
 ### Phase E — Reply, revision, and approval flow
 
@@ -203,8 +202,8 @@ pnpm dev:send-email
 Manual deployment:
 
 ```bash
-vercel deploy --prod --yes --scope example-team
-vercel inspect invoice-gen-alpha-neon.vercel.app --scope example-team
+vercel deploy --prod --yes --scope <your-vercel-scope>
+vercel inspect invoice-gen-alpha-neon.vercel.app --scope <your-vercel-scope>
 ```
 
 Real OpenAI smoke test:

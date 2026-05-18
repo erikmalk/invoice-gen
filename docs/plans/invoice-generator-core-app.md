@@ -29,7 +29,7 @@ Multiple entry-point addresses (e.g. `invoice-gen@`, `expense-report@`) may exis
 ### Current implementation status snapshot
 
 - Production app is deployed manually to Vercel at `invoice-gen-alpha-neon.vercel.app`.
-- Git-triggered Vercel auto-deploys are disabled; use `vercel deploy --prod --yes --scope example-team` and verify status after deploy.
+- Git-triggered Vercel auto-deploys are disabled; use `vercel deploy --prod --yes --scope <your-vercel-scope>` and verify status after deploy.
 - Resend custom receiving domain is `example.com`; active bot address is `invoice-gen@example.com`.
 - Resend webhook is configured for `email.received` to `https://invoice-gen-alpha-neon.vercel.app/api/inbound-email`.
 - Neon/Drizzle schema and migrations are applied; owner user is seeded from `OWNER_EMAIL`.
@@ -60,7 +60,7 @@ Multiple entry-point addresses (e.g. `invoice-gen@`, `expense-report@`) may exis
 | ORM | **Drizzle ORM** | TS-native types, no codegen step, Neon-friendly. |
 | LLM | **OpenAI `gpt-5.4`** (configurable via `settings` table) | Current model. Mini is allowed but full-fat is cheap enough at this volume. |
 | Email provider | **Resend** on `example.com` | First-class inbound webhooks. Signed Svix payloads. Production receiving and webhook delivery have been validated. |
-| PDF generator | Planned: **`@react-pdf/renderer`**. Current first pass: text-buffer stub. | Real PDF rendering/storage remains a finishing task. |
+| PDF generator | **`@react-pdf/renderer`** emits owner-review PDF attachment buffers. | Durable Blob/object storage remains a finishing task. |
 | Auth | **None now.** Inbound `From:` header must match a `users.email` row. | Deferred to WorkOS later; schema reserves `user_id` FKs now. |
 | Payments | **None now.** Reserve Stripe columns on `invoices`. | Column order in Postgres is fixed at creation; cheaper to add now than `ALTER` later. |
 | License | **MIT** | Owner intends this to be open source for self-hosters. |
@@ -82,7 +82,7 @@ flowchart LR
         RUN[runAgentLoop<br/>waitUntil background]
         CRON[/GET /api/cron/retry-stuck/]
         TOOLS[Tools:<br/>manage_invoice<br/>search_client_db<br/>send_invoice_for_review<br/>request_clarification]
-        PDF[PDF artifact<br/>text stub now, real PDF planned]
+        PDF[PDF generation<br/>React PDF now, durable storage planned]
     end
 
     subgraph Postgres["Neon Postgres"]
@@ -117,12 +117,10 @@ while step < max_steps:
     persist(response)                              # append assistant message
     if response.tool_calls:
         for call in response.tool_calls:
-            if call.tool.requires_approval and not auto_approved(call):
-                send_approval_request_to_owner()
-                mark_thread_awaiting_approval()
-                return                             # resume on owner's reply
             result = execute(call)
             persist(result)                        # append tool message
+            if result.terminal or call.tool.terminal:
+                return                             # resume on owner's reply
         continue
     else:
         if response.indicates_final():             # e.g. called no tools, replied
@@ -299,7 +297,7 @@ updated_at      timestamptz default now()
     /inbound-email/route.ts        # Resend webhook
     /cron/retry-stuck/route.ts     # planned safety-net cron (not implemented yet)
   /layout.tsx
-  /page.tsx                        # minimal landing page
+  /page.tsx                        # intentionally returns 404; no public UI in MVP
 
 /lib
   /agent
@@ -322,7 +320,7 @@ updated_at      timestamptz default now()
     send-invoice-for-review.ts
     request-clarification.ts
   /invoices
-    pdf.ts                         # current text-buffer artifact; replace with real PDF renderer later
+    pdf.ts                         # React PDF renderer; durable storage planned later
     numbering.ts                   # invoice_number generator
   /db
     schema.ts                      # Drizzle schema
@@ -402,15 +400,17 @@ interface LLMClient {
 interface Tool<TArgs, TResult> {
   name: string;
   description: string;
-  schema: ZodSchema<TArgs>;
-  requiresApproval: boolean;       // gate write actions
+  parameters: JSONSchema;
+  terminal?: boolean;              // terminal tools stop the current run
+  requiresApproval?: boolean;      // reserved for future gated write actions
   run(args: TArgs, ctx: ToolContext): Promise<TResult>;
 }
 
 interface ToolContext {
+  db: AppDb;
   threadId: number;
   userId: number;
-  persona: string;
+  emailProvider: Pick<EmailProvider, "send">;
 }
 ```
 
@@ -439,7 +439,7 @@ interface EmailProvider {
 
 ### Idempotency
 - Inbound emails have a `Message-ID`. Persist a `messages`-style row only if that ID isn't already in the thread. Resend retries become no-ops.
-- `manage_invoice` with `action='create'` is **not** naturally idempotent — the agent could double-create. Mitigate via `requiresApproval` gating plus a `(thread_id, role='tool', tool_name='manage_invoice', args digest)` uniqueness check if needed in practice.
+- `manage_invoice` with `action='create'` is **not** naturally idempotent — the agent could double-create. Mitigate via a `(thread_id, role='tool', tool_name='manage_invoice', args digest)` uniqueness check or another idempotency key if needed in practice.
 
 ---
 
@@ -463,10 +463,10 @@ Write. Current implementation supports draft `create` and `update` only. Future 
   notes?: string
 }
 ```
-Returns the invoice plus the current PDF artifact reference. The artifact is a text-buffer placeholder until real PDF/storage work lands.
+Returns compact invoice and line-item data. The review-email tool renders the current PDF attachment when needed; durable PDF storage still lands later.
 
 ### `send_invoice_for_review`
-Write. `requiresApproval = false` (the review itself is the human-in-the-loop gate).
+Terminal. The review email itself is the human-in-the-loop gate.
 ```
 { invoiceId: number, messageToOwner: string }
 ```
@@ -510,8 +510,8 @@ Production is manually deployed on Vercel. Git-triggered auto-deploys are disabl
 6. `drizzle.config.ts` pointing at `lib/db/schema.ts` and `lib/db/migrations/`.
 7. `lib/config/env.ts` with Zod validation for all env vars. `.env.example` mirroring it.
 8. `LICENSE` (MIT), `README.md` with self-host setup checklist (placeholder sections for each phase), `.gitignore`.
-9. Root page: minimal "Invoice Generator — running" placeholder.
-10. First manual deploy to Vercel preview: `vercel deploy --yes`. Verify page loads.
+9. Root page: intentionally return 404 until an authenticated UI exists.
+10. First manual deploy to Vercel preview: `vercel deploy --yes`. Verify deployment readiness.
 
 **Env vars to define (empty values OK in .env.example):**
 ```
@@ -527,7 +527,7 @@ OWNER_EMAIL=
 ```
 
 **Acceptance:**
-- `pnpm dev` loads the placeholder page locally.
+- `pnpm dev` starts locally; the root route intentionally returns 404.
 - `vercel deploy --yes` succeeds and returns a preview URL.
 - `drizzle-kit check` runs cleanly (even with empty schema).
 
@@ -601,7 +601,7 @@ Resend receiving is configured on `example.com`, with inbound messages sent to `
 4. `app/api/inbound-email/route.ts`:
    - Verify signature, else 401.
    - Parse payload.
-   - Match `from` to a `users` row; reject unknown senders with a polite bounce.
+   - Match `from` to a `users` row; ignore unknown senders with HTTP 200 to avoid bounces/retries.
    - Find-or-create thread. Persist a `messages` row for the inbound email (role=`user`).
    - Enqueue a `jobs` row kind=`process_inbound_email` with `{threadId}`.
    - Call `waitUntil(runJob(jobId))` and return `200` immediately.
@@ -618,14 +618,14 @@ Resend receiving is configured on `example.com`, with inbound messages sent to `
 
 **Current status:** 🟡 Partially complete.
 
-Implemented: `search_client_db`, `manage_invoice`, `send_invoice_for_review`, `request_clarification`, invoice numbering, line-item/totals persistence, and fake email support for tests. Not yet production-quality: real `@react-pdf/renderer` PDF generation, real Blob/storage integration, and full seeded-client invoice E2E validation.
+Implemented: `search_client_db`, `manage_invoice`, `send_invoice_for_review`, `request_clarification`, invoice numbering, line-item/totals persistence, `@react-pdf/renderer` PDF attachment generation, and fake email support for tests. Not yet production-quality: durable Blob/storage integration and full seeded-client invoice E2E validation.
 
 **Goal:** the four v1 tools implemented and individually testable, plus a clean PDF template.
 
 **Tasks:**
 1. `lib/invoices/numbering.ts` — generate next `invoice_number` per user (format: `YYYY-NNNN`).
-2. `lib/invoices/pdf.ts` — currently a text-buffer placeholder. Replace with an `@react-pdf/renderer` template that takes a full invoice + user + client and emits a Buffer, then store to Vercel Blob or the chosen storage provider (`pdf_blob_key`).
-3. `lib/tools/*.ts` — each tool implemented with Zod schema, `requiresApproval` flag, and a pure `run(args, ctx)`.
+2. `lib/invoices/pdf.ts` — `@react-pdf/renderer` template that takes a full invoice + user + client and emits a Buffer. Add Vercel Blob or another chosen storage provider later for durable `pdf_blob_key` values.
+3. `lib/tools/*.ts` — each tool implemented with validation, JSON-schema parameters, a `terminal` flag where appropriate, and a pure `run(args, ctx)`.
 4. `lib/tools/registry.ts` — maps tool name → Tool. Provides a `toolsForPersona(persona)` helper.
 5. Unit tests for each tool against a seeded test DB.
 
@@ -656,7 +656,7 @@ Implemented: `search_client_db`, `manage_invoice`, `send_invoice_for_review`, `r
    - Loop up to `maxSteps`, also respecting `maxWallClockSeconds`:
      - `runStep("llm-call", ...)` → call `LLMClient.chat(...)`.
      - `runStep("persist-assistant", ...)` → persist assistant message.
-     - If tool calls: for each, check `requiresApproval`; if gated, `runStep("request-approval", ...)` sends approval email + marks thread `awaiting_approval` + exits. Else `runStep("tool-<name>", ...)` executes, then `runStep("persist-tool", ...)` persists the result, continue.
+     - If tool calls: for each allowed tool, `runStep("tool-<name>", ...)` executes, then `runStep("persist-tool", ...)` persists the result. If the tool or result is terminal, exit immediately and wait for the owner to reply.
      - If no tool calls: `runStep("send-reply", ...)` sends email, `runStep("mark-active", ...)` sets thread `active`, exit.
    - On step or wall-clock exhaustion: `runStep("mark-error", ...)` sets thread `error` with `last_error`, notify owner.
    - **Every step must persist before the next begins.** No multi-step batching inside a single `runStep`.
@@ -833,12 +833,12 @@ The migration itself should be a one-afternoon task because of the conventions i
 ## 11. Open questions / deferred decisions
 
 - **Seeded-client invoice E2E:** not yet complete. The next core milestone is adding a real client record, sending an invoice request, and confirming `invoices` + `line_items` + review email are generated correctly.
-- **PDF rendering/storage:** currently a text-buffer stub. Need real `@react-pdf/renderer` output and a storage decision, with Vercel Blob still the default leaning.
+- **PDF storage:** current `@react-pdf/renderer` output is attached to owner review emails. Need a durable storage decision, with Vercel Blob still the default leaning.
 - **Prompt storage:** DB-backed via `settings.invoice_gen_system_prompt`, with a bundled code fallback only for bootstrap/missing-setting recovery so local and production use the same runtime prompt source.
 - **Cron/retry safety net:** job dispatcher exists, but `/api/cron/retry-stuck` and Vercel cron config are not implemented yet.
 - **Client data management:** currently manual via Neon Console or future script. Production admin/client CRUD should wait for WorkOS auth.
-- **Approval policy granularity:** currently a boolean per tool. May need per-action inside `manage_invoice` (already designed that way — `create` and `update` on draft don't require; `approve`/`void`/`delete` do).
-- **Client-facing send:** sending the final approved invoice *to the client* is intentionally NOT in v1. The owner forwards manually. Added later as a new tool with `requiresApproval=true`.
+- **Approval policy granularity:** current v1 uses terminal review/clarification tools as the human gate. Future client-facing actions may need explicit per-action approval policy, especially for `approve`, `void`, `delete`, or `send_to_client`.
+- **Client-facing send:** sending the final approved invoice *to the client* is intentionally NOT in v1. The owner forwards manually. Add later as a separate explicitly gated tool/action.
 - **Stripe:** schema only. Code lands in a future plan.
 - **Auth:** none now. WorkOS is recommended before any production admin panel; add an `auth_provider_id` column and login/session routes when that phase starts.
 - **Multi-tenancy:** every query is already scoped by `user_id`. Turning on multi-tenant is "allow more users" + auth.
@@ -855,5 +855,5 @@ The next highest-value work is:
 2. Run a full invoice-generation E2E test from inbound email through `invoices`, `line_items`, job completion, and owner review email.
 3. Fix any prompt/tool/schema issues found during that seeded-client happy-path test.
 4. Implement the cron/retry safety net once the core happy path is stable.
-5. Replace the text-buffer PDF stub with real PDF rendering/storage.
+5. Add durable PDF storage/linking around the current React PDF renderer.
 6. Defer the admin UI until WorkOS/protected auth is designed.

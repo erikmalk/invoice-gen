@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Invoice Generator Architecture Summary</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #111827;
+      --muted: #4b5563;
+      --line: #9ca3af;
+      --selected: #111827;
+      --soft: #f9fafb;
+      --code: #f3f4f6;
+      --accent: #111827;
+      --accent-2: #374151;
+      --warn: #92400e;
+      --good: #166534;
+      --bad: #991b1b;
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 56px 22px 28px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--soft);
+      font-size: 13px;
+      letter-spacing: .02em;
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: clamp(34px, 6vw, 68px);
+      line-height: .98;
+      letter-spacing: -0.06em;
+    }
+
+    .lead {
+      max-width: 820px;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(17px, 2.2vw, 22px);
+    }
+
+    .quick-facts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      max-width: 1180px;
+      margin: 16px auto 0;
+      padding: 0 22px;
+    }
+
+    .fact, .card, details, .panel {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      border-radius: var(--radius);
+    }
+
+    .fact { padding: 16px; }
+    .fact strong { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .fact span { display: block; margin-top: 5px; font-size: 16px; }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 26px 22px 72px;
+    }
+
+    section { margin-top: 34px; }
+    h2 { margin: 0 0 14px; font-size: 28px; letter-spacing: -0.03em; }
+    h3 { margin: 0 0 8px; font-size: 18px; }
+    p { color: var(--muted); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+      position: relative;
+    }
+
+    .flow .card {
+      padding: 16px;
+      cursor: pointer;
+      min-height: 155px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .flow .card:hover, .flow .card:focus {
+      outline: none;
+    }
+
+    .flow .card.is-selected {
+      border: 2px solid var(--selected);
+    }
+
+    .step-num {
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      background: var(--code);
+      color: var(--accent);
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .card p { margin: 0; font-size: 14px; }
+    .card .path { color: var(--accent-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; margin-top: 10px; }
+
+    .detail-target {
+      margin-top: 16px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--soft);
+      min-height: 150px;
+    }
+
+    .detail-target h3 { color: var(--accent); }
+    .detail-target ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card.static { cursor: default; padding: 18px; min-height: 0; }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .tag {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 999px;
+      padding: 5px 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    details { margin: 12px 0; overflow: hidden; }
+    summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 17px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      font-weight: 800;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary:after { content: "+"; color: var(--accent); font-size: 24px; line-height: 1; }
+    details[open] summary:after { content: "–"; }
+    details .body { border-top: 1px solid var(--line); padding: 18px; }
+    details p:first-child { margin-top: 0; }
+
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #111827;
+      background: var(--code);
+      border: 1px solid #d1d5db;
+      border-radius: 7px;
+      padding: 2px 5px;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      color: #111827;
+    }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .status-list { padding-left: 20px; color: var(--muted); }
+    .status-list strong { color: var(--text); }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+
+    footer {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 22px 50px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 1050px) {
+      .flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .quick-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .flow, .grid, .two-col, .quick-facts { grid-template-columns: 1fr; }
+      header { padding-top: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Reviewed docs + project codebase · <span class="mono">invoice-gen</span></div>
+    <h1>Email-first AI invoice assistant</h1>
+    <p class="lead">
+      This project is a small Next.js/Vercel application that treats email threads as the user interface, Neon Postgres as durable memory, and an OpenAI tool-calling loop as the invoice drafting engine.
+    </p>
+  </header>
+
+  <div class="quick-facts" aria-label="Architecture quick facts">
+    <div class="fact"><strong>Runtime</strong><span>Next.js 15 App Router on Vercel</span></div>
+    <div class="fact"><strong>Data</strong><span>Neon Postgres via Drizzle ORM</span></div>
+    <div class="fact"><strong>IO</strong><span>Resend inbound + outbound email</span></div>
+    <div class="fact"><strong>AI</strong><span>OpenAI Responses API with tools</span></div>
+  </div>
+
+  <main>
+    <section aria-labelledby="flow-title">
+      <h2 id="flow-title">Click-through request flow</h2>
+      <p>Click a stage to see the medium-density explanation. The flow is optimized around quick webhook acknowledgement, durable DB checkpoints, and terminal email replies to the owner.</p>
+
+      <div class="flow" id="flowCards">
+        <article class="card" tabindex="0" data-step="email"><span class="step-num">1</span><h3>Owner email</h3><p>Owner sends a natural-language invoice request to the bot address.</p><div class="path">invoice-gen@...</div></article>
+        <article class="card" tabindex="0" data-step="webhook"><span class="step-num">2</span><h3>Webhook intake</h3><p>Resend webhook is IP/signature/auth checked, parsed, and accepted or ignored.</p><div class="path">app/api/inbound-email</div></article>
+        <article class="card" tabindex="0" data-step="thread"><span class="step-num">3</span><h3>Thread + job</h3><p>The email is mapped to a durable thread/message and a job is queued.</p><div class="path">threads · messages · jobs</div></article>
+        <article class="card" tabindex="0" data-step="agent"><span class="step-num">4</span><h3>Agent loop</h3><p>The loop reloads context, calls OpenAI, executes allowed tools, and persists every turn.</p><div class="path">lib/agent/loop.ts</div></article>
+        <article class="card" tabindex="0" data-step="tools"><span class="step-num">5</span><h3>Invoice tools</h3><p>Tools search clients, create/update drafts, ask questions, and email review PDFs.</p><div class="path">lib/tools/*</div></article>
+        <article class="card" tabindex="0" data-step="reply"><span class="step-num">6</span><h3>Owner reply</h3><p>A terminal email ends the current run; the next owner reply resumes via the same path.</p><div class="path">awaiting_approval</div></article>
+      </div>
+
+      <div class="detail-target" id="flowDetail" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="components-title">
+      <h2 id="components-title">Component grid</h2>
+      <div class="grid">
+        <article class="card static"><h3>Inbound route</h3><p>Thin route export delegates to <code>handleInboundEmail</code>, which is dependency-injected for tests.</p><div class="tag-row"><span class="tag">IP allowlist</span><span class="tag">Svix signature</span><span class="tag">DMARC</span></div></article>
+        <article class="card static"><h3>Email provider</h3><p><code>ResendEmailProvider</code> verifies webhook payloads, normalizes addresses/headers/attachments, and sends threaded replies.</p><div class="tag-row"><span class="tag">Resend</span><span class="tag">Message-ID</span><span class="tag">References</span></div></article>
+        <article class="card static"><h3>Threading</h3><p><code>findOrCreateThread</code> uses recipient local-part as entry point and message IDs/references to resume conversations.</p><div class="tag-row"><span class="tag">invoice-gen</span><span class="tag">In-Reply-To</span></div></article>
+        <article class="card static"><h3>Job runner</h3><p><code>runJob</code> marks jobs running/done/failed and dispatches <code>process_inbound_email</code> or <code>resume_agent_thread</code>.</p><div class="tag-row"><span class="tag">status transitions</span><span class="tag">retry-ready</span></div></article>
+        <article class="card static"><h3>Agent persona</h3><p>Entry point <code>invoice-gen</code> loads model, step limits, wall-clock budget, and prompt from the settings table.</p><div class="tag-row"><span class="tag">DB-backed prompt</span><span class="tag">gpt-5.4 default</span></div></article>
+        <article class="card static"><h3>OpenAI adapter</h3><p>Provider-agnostic messages/tools are translated to the OpenAI Responses API and normalized back.</p><div class="tag-row"><span class="tag">function tools</span><span class="tag">parallel calls</span></div></article>
+        <article class="card static"><h3>Database schema</h3><p>Core tables are owner, clients, threads, messages, jobs, invoices, line items, and runtime settings.</p><div class="tag-row"><span class="tag">Drizzle</span><span class="tag">citext</span><span class="tag">durable context</span></div></article>
+        <article class="card static"><h3>PDF renderer</h3><p>Invoices are rendered with <code>@react-pdf/renderer</code> into an attachment buffer for owner review emails.</p><div class="tag-row"><span class="tag">React PDF</span><span class="tag">A4</span></div></article>
+        <article class="card static"><h3>Dev scripts</h3><p>Scripts seed settings/users, simulate webhooks, rerun jobs, migrate schema, and export PDFs locally.</p><div class="tag-row"><span class="tag">pnpm db:seed</span><span class="tag">dev:run-job</span></div></article>
+      </div>
+    </section>
+
+    <section aria-labelledby="accordion-title">
+      <h2 id="accordion-title">Expandable architecture notes</h2>
+
+      <details open>
+        <summary>1. Product shape and guiding approach</summary>
+        <div class="body">
+          <p>The MVP deliberately has no public product UI: <code>app/page.tsx</code> returns a 404. The app is operated through email, database records, and developer scripts. This matches the core product idea: the owner can write an informal email request and get a draft invoice back for review.</p>
+          <p>The most important design choice is <strong>agent over rigid workflow</strong>. The input is free-form natural language, and future flows need revision/approval loops, so the app keeps business actions behind explicit tools while the LLM decides which tool to call next.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>2. Inbound email security and idempotency</summary>
+        <div class="body">
+          <p>The inbound handler applies layered checks before it mutates state:</p>
+          <ul class="status-list">
+            <li><strong>Webhook source:</strong> optional <code>x-forwarded-for</code> validation against Resend IPv4 and IPv6 ranges.</li>
+            <li><strong>Webhook authenticity:</strong> Resend/Svix signature verification via <code>RESEND_WEBHOOK_SECRET</code>.</li>
+            <li><strong>Sender authentication:</strong> DMARC must pass and <code>header.from</code> must match the sender domain.</li>
+            <li><strong>Owner authorization:</strong> inbound <code>from.email</code> must match a row in <code>users</code>.</li>
+            <li><strong>Rate limit:</strong> accepted owner emails are capped at 30 per hour.</li>
+            <li><strong>Duplicate handling:</strong> an existing <code>external_message_id</code> makes Resend retries a no-op.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>3. Durable context model</summary>
+        <div class="body">
+          <p><code>threads</code> are conversation roots. <code>messages</code> are the append-only-ish history for user emails, assistant tool calls, and tool outputs. On every run, the agent reloads this DB history and rebuilds the LLM context from scratch.</p>
+          <p>User messages are converted to LLM messages that include both <code>Subject:</code> and <code>Body:</code>. Tool outputs are persisted as compact JSON, which makes the run replayable and debuggable without hidden process memory.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>4. Agent loop and checkpointing</summary>
+        <div class="body">
+          <p><code>runAgentLoop</code> is bounded by both step count and wall-clock seconds. Each unit of work is wrapped in <code>runStep</code>: load thread, load persona, compose prompt, call LLM, persist assistant, run tool, persist tool, mark status, or send reply.</p>
+          <p>The design convention from the docs is visible in code: do one awaitable thing, persist the result, then continue. That keeps the system ready for retries, job recovery, or eventual migration to a durable-execution platform.</p>
+          <pre><code>load thread → render system prompt → LLM call
+  → persist assistant message
+  → execute requested tool(s)
+  → persist tool result(s)
+  → stop if terminal, otherwise loop</code></pre>
+        </div>
+      </details>
+
+      <details>
+        <summary>5. Tool set and invoice behavior</summary>
+        <div class="body">
+          <div class="two-col">
+            <div>
+              <h3>Read / write tools</h3>
+              <ul class="status-list">
+                <li><code>search_client_db</code>: owner-scoped fuzzy-ish lookup over company/contact/email/address/phone/notes.</li>
+                <li><code>manage_invoice</code>: creates or updates draft invoices, calculates totals, writes line items, and assigns <code>YYYY-XXXX</code> invoice numbers.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Terminal tools</h3>
+              <ul class="status-list">
+                <li><code>send_invoice_for_review</code>: renders/reuses a PDF and emails the owner. Stops the run.</li>
+                <li><code>request_clarification</code>: emails a focused follow-up question. Stops the run.</li>
+              </ul>
+            </div>
+          </div>
+          <p>The terminal-tool convention is crucial: after an email is sent to the owner, the agent does not call the LLM again until the owner replies.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>6. Data model at a glance</summary>
+        <div class="body">
+          <p>The schema is intentionally compact:</p>
+          <ul class="status-list">
+            <li><strong>Identity:</strong> <code>users</code> and <code>clients</code>.</li>
+            <li><strong>Conversations:</strong> <code>threads</code> and <code>messages</code>.</li>
+            <li><strong>Work queue:</strong> <code>jobs</code>.</li>
+            <li><strong>Invoice domain:</strong> <code>invoices</code> and <code>line_items</code>.</li>
+            <li><strong>Runtime configuration:</strong> <code>settings</code>, including model name and system prompt.</li>
+          </ul>
+          <p>Foreign keys are scoped to users where appropriate, clients cascade with users, line items cascade with invoices, and invoice numbers are unique per user.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>7. Testing and operational status</summary>
+        <div class="body">
+          <p>The project has focused unit tests around the most important seams: inbound webhook behavior, thread resolution, Resend normalization, OpenAI Responses mapping, terminal agent behavior, and job status transitions.</p>
+          <ul class="status-list">
+            <li class="good"><strong>Validated:</strong> production inbound email persistence, webhook signature rejection, DB-backed prompt, missing-client clarification email.</li>
+            <li class="warn"><strong>Still needs proof:</strong> full seeded-client happy path, reply/revision/approval flow, cron recovery, real production admin/auth flows.</li>
+            <li class="warn"><strong>Important deployment policy:</strong> Vercel Git auto-deploys are disabled; deploy manually with the Vercel CLI.</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <section aria-labelledby="next-title">
+      <h2 id="next-title">Recommended next steps</h2>
+      <div class="grid">
+        <article class="card static"><h3>1. Prove happy path</h3><p>Seed a real client, send an invoice request, verify thread/messages/job/invoice/line_items rows, and confirm owner receives the review PDF.</p></article>
+        <article class="card static"><h3>2. Harden recovery</h3><p>Add a protected cron route to reclaim pending/stale running jobs and retry within <code>max_attempts</code>.</p></article>
+        <article class="card static"><h3>3. Finish human loop</h3><p>Define approval/revision semantics, add or extend tools, and test owner replies like “approved” or “change the amount.”</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Generated from <code>docs/current-architecture-and-next-steps.md</code>, <code>docs/plans/invoice-generator-core-app.md</code>, and the current TypeScript codebase.
+  </footer>
+
+  <script>
+    const details = {
+      email: {
+        title: "1. Owner email",
+        body: [
+          "The owner sends an informal request to the supported entry-point address, currently the local-part invoice-gen. The address determines the persona and allowed tool subset.",
+          "The sender identity is the only current auth mechanism: inbound from.email must match users.email after the webhook and DMARC checks pass."
+        ],
+        bullets: ["Entry point: invoice-gen", "No public web UI", "Single-owner MVP"]
+      },
+      webhook: {
+        title: "2. Webhook intake",
+        body: [
+          "POST /api/inbound-email delegates to handleInboundEmail. The handler verifies the Resend/Svix signature, parses/normalizes the inbound email, checks DMARC authentication, rejects unknown senders, and applies a simple owner rate limit.",
+          "Ignored messages return 200 to avoid noisy bounces/retries; invalid signatures return 401 and disallowed sources return 403."
+        ],
+        bullets: ["app/api/inbound-email/handler.ts", "ResendEmailProvider.parseInbound", "DMARC + header.from match"]
+      },
+      thread: {
+        title: "3. Thread + job persistence",
+        body: [
+          "findOrCreateThread maps email recipients to an entry point, then uses Message-ID, In-Reply-To, and References to attach replies to existing threads.",
+          "A new user message row is inserted with an externalMessageId for idempotency. A process_inbound_email job is then enqueued and scheduled with Vercel waitUntil so the webhook can return quickly."
+        ],
+        bullets: ["threads.external_root_id", "messages.external_message_id", "jobs.kind = process_inbound_email"]
+      },
+      agent: {
+        title: "4. Agent loop",
+        body: [
+          "runAgentLoop reloads the thread, user, and persisted messages. It loads persona settings from the database, renders the DB-backed system prompt with the owner profile, and calls an LLM client for each step.",
+          "Assistant messages and tool results are persisted after each step. If a terminal tool runs, the loop exits immediately without another LLM call."
+        ],
+        bullets: ["maxSteps default: 10", "maxWallClock default: 600s", "OpenAI Responses API adapter"]
+      },
+      tools: {
+        title: "5. Invoice tools",
+        body: [
+          "The active persona exposes four tools: search_client_db, manage_invoice, send_invoice_for_review, and request_clarification.",
+          "manage_invoice owns draft creation/update and line item totals. send_invoice_for_review renders the PDF and emails only the owner; it is the human-in-the-loop gate before any future client-facing send."
+        ],
+        bullets: ["Client lookup before drafting", "Draft invoice + line items", "Terminal review/clarification emails"]
+      },
+      reply: {
+        title: "6. Owner reply / resume",
+        body: [
+          "Terminal tools set the thread to awaiting_approval. When the owner replies, the same inbound path persists the new user message and queues another agent job.",
+          "The reply/revision/approval semantics are planned but not fully built out; the architecture already supports resuming from the durable thread history."
+        ],
+        bullets: ["awaiting_approval status", "resume_agent_thread job kind exists", "Approval/revision flow is next-phase work"]
+      }
+    };
+
+    const target = document.getElementById("flowDetail");
+    const cards = Array.from(document.querySelectorAll("[data-step]"));
+
+    function renderDetail(key) {
+      const item = details[key];
+      if (!item) return;
+      target.innerHTML = `
+        <h3>${item.title}</h3>
+        ${item.body.map((p) => `<p>${p}</p>`).join("")}
+        <ul>${item.bullets.map((b) => `<li>${b}</li>`).join("")}</ul>
+      `;
+      cards.forEach((card) => {
+        card.classList.toggle("is-selected", card.dataset.step === key);
+      });
+    }
+
+    cards.forEach((card) => {
+      card.addEventListener("click", () => renderDetail(card.dataset.step));
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          renderDetail(card.dataset.step);
+        }
+      });
+    });
+
+    renderDetail("email");
+  </script>
+</body>
+</html>

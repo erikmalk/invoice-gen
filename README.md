@@ -1,33 +1,41 @@
 # Invoice Generator
 
-Email-first AI assistant for drafting invoices. The MVP is designed for a single owner workflow: the owner sends an invoice request by email, the app processes it, creates or updates a draft invoice, and emails the owner back for clarification or review with a PDF attachment.
+Email-first AI assistant for drafting invoices. The MVP is built around a single-owner workflow: the owner emails an invoice request, the app persists the email thread, runs an OpenAI tool-calling agent, and responds with either a clarification request or a draft invoice for review.
 
 There is intentionally no public product UI right now. The root route returns a 404; the app is operated through email, the inbound webhook, database records, and scripts.
 
 ## Stack
 
 - Next.js 15 + TypeScript on Vercel
-- Postgres with Drizzle ORM, intended to run through the Vercel Postgres/Neon integration
+- Neon Postgres with Drizzle ORM, intended to run through the Vercel integration
 - Resend for inbound and outbound email
 - OpenAI Responses API for the invoice assistant
 - `@react-pdf/renderer` for invoice PDFs
 
 ## Current MVP scope
 
-Implemented:
+Built:
 
 - Resend inbound webhook at `POST /api/inbound-email`
 - Resend webhook signature verification and sender authentication checks
 - Owner/user, client, thread, message, job, invoice, line item, and settings tables
 - AI agent loop with tools for client lookup, draft invoice management, clarification requests, and owner review emails
-- PDF generation and owner-facing review email attachments
+- PDF generation and the owner-facing review email attachment path
 - Basic tests, type checking, migrations, and seed script
 
-Not yet a full product:
+Validated so far:
+
+- Typecheck, unit tests, and production build
+- Production Resend webhook signature rejection and real inbound email persistence
+- Missing-client flow: the owner receives a clarification email when the requested client is not found
+
+Still to prove or finish:
 
 - No authenticated admin UI yet
 - No client-facing invoice sending flow yet
 - Client records currently need to be managed directly in Postgres or with future private tooling
+- Full seeded-client happy path still needs end-to-end proof: client lookup, invoice and line item creation, totals, review email, and PDF attachment
+- Reply/revision/approval semantics are still first-pass/future work
 - Job recovery/cron support is not fully wired up yet
 
 ## Prerequisites
@@ -88,7 +96,7 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
-After seeding, update the owner profile and add real client records before using the app for actual invoice drafts. The PDF generator uses the owner/client data stored in Postgres.
+After seeding, update the owner profile and add real client records before using the app for actual invoice drafts. The PDF generator uses the owner/client data stored in Postgres. The runtime invoice prompt lives in `settings.invoice_gen_system_prompt`; the source prompt file is only the bootstrap/fallback default.
 
 ## Local development
 
