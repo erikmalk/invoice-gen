@@ -1,3 +1,4 @@
+import { manageClientsTool } from "./manage-clients.ts";
 import { manageInvoiceTool } from "./manage-invoice.ts";
 import { requestClarificationTool } from "./request-clarification.ts";
 import { searchClientDbTool } from "./search-client-db.ts";
@@ -6,6 +7,7 @@ import type { Tool } from "./types.ts";
 
 export const toolRegistry = new Map<string, Tool>([
   [searchClientDbTool.name, searchClientDbTool],
+  [manageClientsTool.name, manageClientsTool],
   [manageInvoiceTool.name, manageInvoiceTool],
   [sendInvoiceForReviewTool.name, sendInvoiceForReviewTool],
   [requestClarificationTool.name, requestClarificationTool],
@@ -26,6 +28,7 @@ export function toolsForPersona(persona: { toolNames: string[] }) {
 }
 
 export {
+  manageClientsTool,
   manageInvoiceTool,
   requestClarificationTool,
   searchClientDbTool,
