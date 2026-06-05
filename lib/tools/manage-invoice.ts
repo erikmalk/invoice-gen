@@ -11,19 +11,29 @@ const lineItemSchema = z.object({
   unitPriceCents: z.number().int().min(0),
 });
 
+const optionalStringSchema = z.preprocess(nullToUndefined, z.string().optional());
+const optionalCurrencySchema = z.preprocess(nullToUndefined, z.string().min(3).max(3).optional());
+const optionalPositiveIntSchema = z.preprocess(nullToUndefined, z.number().int().positive().optional());
+const optionalNonNegativeIntSchema = z.preprocess(nullToUndefined, z.number().int().min(0).optional());
+const optionalLineItemsSchema = z.preprocess(nullToUndefined, z.array(lineItemSchema).min(1).optional());
+
 const manageInvoiceSchema = z.object({
   action: z.enum(["create", "update"]),
-  invoiceId: z.number().int().positive().optional(),
-  clientId: z.number().int().positive().optional(),
-  issuedDate: z.string().optional(),
-  dueDate: z.string().optional(),
-  currency: z.string().min(3).max(3).optional(),
-  taxCents: z.number().int().min(0).optional(),
-  notes: z.string().optional(),
-  lineItems: z.array(lineItemSchema).min(1).optional(),
+  invoiceId: optionalPositiveIntSchema,
+  clientId: optionalPositiveIntSchema,
+  issuedDate: optionalStringSchema,
+  dueDate: optionalStringSchema,
+  currency: optionalCurrencySchema,
+  taxCents: optionalNonNegativeIntSchema,
+  notes: optionalStringSchema,
+  lineItems: optionalLineItemsSchema,
 });
 
 type ManageInvoiceArgs = z.infer<typeof manageInvoiceSchema>;
+
+function nullToUndefined(value: unknown) {
+  return value === null ? undefined : value;
+}
 
 type NormalizedLineItem = z.infer<typeof lineItemSchema> & {
   position: number;
