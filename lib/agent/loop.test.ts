@@ -116,6 +116,48 @@ test("agent context replays persisted tool messages without inline PDF data", ()
   assert.ok(serialized.includes("pdfAvailable"));
 });
 
+test("agent context fills missing tool outputs from previous failed runs", () => {
+  const context = createThreadContext();
+  context.messages.push(
+    {
+      id: 11,
+      threadId: 42,
+      sequenceNum: 2,
+      role: "assistant",
+      content: null,
+      externalMessageId: null,
+      toolCalls: [{ id: "call_missing", name: "manage_clients", arguments: { action: "delete", clientId: 2 } }],
+      toolCallId: null,
+      toolName: null,
+      tokenUsage: null,
+      model: "fake-model",
+      createdAt: new Date(),
+    },
+    {
+      id: 12,
+      threadId: 42,
+      sequenceNum: 3,
+      role: "user",
+      content: "Please try again.",
+      externalMessageId: "<msg2@example.com>",
+      toolCalls: null,
+      toolCallId: null,
+      toolName: null,
+      tokenUsage: null,
+      model: null,
+      createdAt: new Date(),
+    },
+  );
+
+  const messages = buildLLMMessages(context, "system prompt");
+  const syntheticToolMessage = messages.find(
+    (message) => message.role === "tool" && message.toolCallId === "call_missing",
+  );
+
+  assert.equal(syntheticToolMessage?.toolName, "manage_clients");
+  assert.ok(syntheticToolMessage?.content?.includes("earlier tool call did not complete"));
+});
+
 test("terminal tool execution stops the loop without another LLM call", async () => {
   const context = createThreadContext();
   const persistedRoles: string[] = [];

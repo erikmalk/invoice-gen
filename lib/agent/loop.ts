@@ -162,10 +162,38 @@ export async function runAgentLoop(
 }
 
 export function buildLLMMessages(context: ThreadContext, systemPrompt: string): ChatMessage[] {
-  return [
-    { role: "system", content: systemPrompt },
-    ...context.messages.map((message) => messageToChatMessage(context.thread, message)),
-  ];
+  const persistedToolCallIds = new Set(
+    context.messages
+      .filter((message) => message.role === "tool" && message.toolCallId)
+      .map((message) => message.toolCallId!),
+  );
+  const chatMessages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
+
+  for (const message of context.messages) {
+    const chatMessage = messageToChatMessage(context.thread, message);
+    chatMessages.push(chatMessage);
+
+    if (chatMessage.role === "assistant") {
+      chatMessages.push(...missingToolResultMessages(chatMessage.toolCalls ?? [], persistedToolCallIds));
+    }
+  }
+
+  return chatMessages;
+}
+
+function missingToolResultMessages(toolCalls: ToolCall[], persistedToolCallIds: Set<string>): ChatMessage[] {
+  return toolCalls
+    .filter((toolCall) => !persistedToolCallIds.has(toolCall.id))
+    .map((toolCall) => ({
+      role: "tool" as const,
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      content: JSON.stringify({
+        ok: false,
+        error:
+          "This earlier tool call did not complete, likely because a previous run failed before recording the tool result. Continue from the latest owner message and do not assume the requested action succeeded.",
+      }),
+    }));
 }
 
 export async function loadAndRenderSystemPrompt(persona: PersonaConfig, context: ThreadContext) {
