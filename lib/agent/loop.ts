@@ -122,11 +122,20 @@ export async function runAgentLoop(
         throw new Error(`LLM requested unknown tool: ${toolCall.name}`);
       }
 
-      const result = await runStep(
-        `tool-${toolCall.name}`,
-        () => tool.run(toolCall.arguments, createToolContext(database, context, emailProvider)),
-        stepOptions,
-      );
+      let result: ToolResult;
+
+      try {
+        result = await runStep(
+          `tool-${toolCall.name}`,
+          () => tool.run(toolCall.arguments, createToolContext(database, context, emailProvider)),
+          stepOptions,
+        );
+      } catch (error) {
+        result = {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
 
       await runStep(
         "persist-tool",

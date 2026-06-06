@@ -172,6 +172,75 @@ test("terminal tool execution stops the loop without another LLM call", async ()
   assert.deepEqual(statuses, []);
 });
 
+test("tool execution errors are returned to the LLM so it can send a text reply", async () => {
+  const context = createThreadContext();
+  const persistedRoles: string[] = [];
+  const persistedToolResults: unknown[] = [];
+  const sentMessages: string[] = [];
+  const store: AgentStore = {
+    async loadThreadContext() {
+      return context;
+    },
+    async persistAssistantMessage() {
+      persistedRoles.push("assistant");
+    },
+    async persistToolMessage(_threadId, _toolCall, result) {
+      persistedRoles.push("tool");
+      persistedToolResults.push(result);
+    },
+    async setThreadStatus() {
+      // Status is not relevant for this assertion.
+    },
+  };
+  const failingTool: Tool = {
+    name: "failing_tool",
+    description: "Throws during execution.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async run() {
+      throw new Error("client is referenced by invoices");
+    },
+  };
+  const llm = new FakeLLMClient([
+    {
+      model: "fake-model",
+      message: {
+        role: "assistant",
+        toolCalls: [{ id: "call_1", name: "failing_tool", arguments: {} }],
+      },
+    },
+    {
+      model: "fake-model",
+      message: {
+        role: "assistant",
+        content: "I couldn't delete that client because existing invoices reference it.",
+      },
+    },
+  ]);
+
+  const result = await runAgentLoop(42, {
+    db: {} as AppDb,
+    store,
+    persona: { ...persona, toolNames: ["failing_tool"] },
+    tools: [failingTool],
+    llmClient: llm,
+    emailProvider: {
+      async send(message) {
+        sentMessages.push(message.text ?? "");
+        return { messageId: "sent_1" };
+      },
+    },
+    async loadSystemPrompt() {
+      return "system prompt";
+    },
+  });
+
+  assert.equal(result.status, "done");
+  assert.equal(llm.requests.length, 2);
+  assert.deepEqual(persistedRoles, ["assistant", "tool", "assistant"]);
+  assert.deepEqual(persistedToolResults, [{ ok: false, error: "client is referenced by invoices" }]);
+  assert.deepEqual(sentMessages, ["I couldn't delete that client because existing invoices reference it."]);
+});
+
 test("agent rejects tool calls outside the active persona allowlist", async () => {
   const context = createThreadContext();
   const persistedRoles: string[] = [];

@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { clients } from "../db/schema.ts";
+import { clients, invoices } from "../db/schema.ts";
 import type { Tool, ToolContext, ToolResult } from "./types.ts";
 
 const manageClientsSchema = z.object({
@@ -141,6 +141,22 @@ async function updateClient(args: ManageClientsArgs, ctx: ToolContext): Promise<
 
 async function deleteClient(args: ManageClientsArgs, ctx: ToolContext): Promise<ToolResult> {
   const existing = await requireClient(args.clientId, ctx);
+  const referencingInvoices = await invoiceReferenceSummary(existing.id, ctx);
+
+  if (referencingInvoices.count > 0) {
+    return {
+      ok: false,
+      error: `Client ${existing.id} cannot be deleted because ${referencingInvoices.count} invoice(s) reference it.`,
+      data: {
+        action: "delete",
+        client: formatClientRecord(existing),
+        referencingInvoices,
+        guidance:
+          "Keep this client record because invoices reference it. Tell the owner it cannot be deleted without first removing or reassigning those invoices.",
+      },
+    };
+  }
+
   const [deleted] = await ctx.db
     .delete(clients)
     .where(and(eq(clients.id, existing.id), eq(clients.userId, ctx.userId)))
@@ -157,6 +173,23 @@ async function deleteClient(args: ManageClientsArgs, ctx: ToolContext): Promise<
       deletedClient: formatClientRecord(deleted),
       writableFields: getWritableClientFieldNames(),
     },
+  };
+}
+
+async function invoiceReferenceSummary(clientId: number, ctx: ToolContext) {
+  const [summary] = await ctx.db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(invoices)
+    .where(and(eq(invoices.clientId, clientId), eq(invoices.userId, ctx.userId)));
+  const referencedInvoices = await ctx.db
+    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, status: invoices.status })
+    .from(invoices)
+    .where(and(eq(invoices.clientId, clientId), eq(invoices.userId, ctx.userId)))
+    .limit(10);
+
+  return {
+    count: summary?.count ?? 0,
+    invoices: referencedInvoices,
   };
 }
 
